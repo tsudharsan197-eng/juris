@@ -73,6 +73,10 @@ export function deleteDocument(documentId) {
   });
 }
 
+export function getDocumentDownloadUrl(documentId) {
+  return apiFetch(`/api/documents/${documentId}/download-url`);
+}
+
 export function normalizedContentType(file) {
   const extension = file.name.split(".").pop()?.toLowerCase();
   if (extension === "pdf") return "application/pdf";

@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import Button from "../components/Button.jsx";
 import Navbar from "../components/Navbar.jsx";
-import { deleteDocument, listDocuments } from "../lib/documentsApi.js";
+import { deleteDocument, getDocumentDownloadUrl, listDocuments } from "../lib/documentsApi.js";
 
 export default function Documents() {
   const [documents, setDocuments] = useState([]);
   const [status, setStatus] = useState("loading");
   const [message, setMessage] = useState("");
-  const [deletingId, setDeletingId] = useState(null);
+  const [actionError, setActionError] = useState("");
+  const [deletingIds, setDeletingIds] = useState(() => new Set());
+  const [downloadingId, setDownloadingId] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -28,20 +30,38 @@ export default function Documents() {
   }, []);
 
   async function handleDelete(document) {
+    const documentId = document.id;
     const confirmed = window.confirm("Delete this document forever?");
     if (!confirmed) return;
 
     try {
-      setDeletingId(document.id);
-      setMessage("");
-      await deleteDocument(document.id);
-      setDocuments((current) => current.filter((item) => item.id !== document.id));
+      setDeletingIds((current) => new Set(current).add(documentId));
+      setActionError("");
+      await deleteDocument(documentId);
+      setDocuments((current) => current.filter((item) => item.id !== documentId));
       setStatus("ready");
     } catch (error) {
-      setStatus("error");
-      setMessage(error.message);
+      setActionError(error.message);
     } finally {
-      setDeletingId(null);
+      setDeletingIds((current) => {
+        const next = new Set(current);
+        next.delete(documentId);
+        return next;
+      });
+    }
+  }
+
+  async function handleDownload(document) {
+    const documentId = document.id;
+    try {
+      setDownloadingId(documentId);
+      setActionError("");
+      const { downloadUrl } = await getDocumentDownloadUrl(documentId);
+      window.open(downloadUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setActionError(error.message);
+    } finally {
+      setDownloadingId(null);
     }
   }
 
@@ -60,6 +80,7 @@ export default function Documents() {
 
           {status === "loading" && <p className="documents-message">Loading documents...</p>}
           {status === "error" && <p className="documents-message error">{message}</p>}
+          {actionError && <p className="documents-message error">{actionError}</p>}
           {status === "ready" && documents.length === 0 && (
             <p className="documents-message">No documents yet. Upload your first contract.</p>
           )}
@@ -77,15 +98,26 @@ export default function Documents() {
                     <strong>{(document.file_size / (1024 * 1024)).toFixed(2)} MB</strong>
                     <span>{document.mime_type}</span>
                   </div>
-                  <button
-                    className="document-delete"
-                    type="button"
-                    onClick={() => handleDelete(document)}
-                    disabled={deletingId === document.id}
-                    aria-label={`Delete ${document.title}`}
-                  >
-                    {deletingId === document.id ? "Deleting..." : "Delete"}
-                  </button>
+                  <div className="document-action-buttons">
+                    <button
+                      className="document-action-button"
+                      type="button"
+                      onClick={() => handleDownload(document)}
+                      disabled={downloadingId === document.id}
+                      aria-label={`Download ${document.title}`}
+                    >
+                      {downloadingId === document.id ? "Opening..." : "Download"}
+                    </button>
+                    <button
+                      className="document-action-button document-delete"
+                      type="button"
+                      onClick={() => handleDelete(document)}
+                      disabled={deletingIds.has(document.id)}
+                      aria-label={`Delete ${document.title}`}
+                    >
+                      {deletingIds.has(document.id) ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
                 </div>
               </article>
             ))}

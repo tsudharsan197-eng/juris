@@ -1584,7 +1584,14 @@ p {
   gap: 16px;
 }
 
-.document-delete {
+.document-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.document-action-button {
   min-height: 38px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--card) 78%, transparent);
@@ -1594,15 +1601,22 @@ p {
   transition: transform 180ms ease, border-color 180ms ease, color 180ms ease, background 180ms ease;
 }
 
+.document-action-button:hover,
+.document-action-button:focus {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 7%, var(--card));
+}
+
 .document-delete:hover,
 .document-delete:focus {
-  transform: translateY(-2px);
   border-color: var(--orange);
   color: var(--orange);
   background: color-mix(in srgb, var(--orange) 10%, var(--card));
 }
 
-.document-delete:disabled {
+.document-action-button:disabled {
   cursor: not-allowed;
   opacity: 0.58;
   transform: none;
@@ -1823,6 +1837,10 @@ p {
     width: 100%;
     align-items: flex-start;
     justify-content: space-between;
+  }
+
+  .document-action-buttons {
+    justify-content: flex-start;
   }
 
   .footer,
