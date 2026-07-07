@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import traceback
 import uuid
 import zipfile
 from datetime import datetime
@@ -14,6 +15,7 @@ from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 load_dotenv()
@@ -249,34 +251,48 @@ async def upload_document(
     user_id: Annotated[str, Depends(current_user_id)],
     pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
 ):
-    file_name = file.filename or "document"
-    contents = await file.read(MAX_FILE_SIZE + 1)
-    file_size = len(contents)
-    mime_type = validate_uploaded_file(file_name, file.content_type, file_size, contents)
-
-    document_id = str(uuid.uuid4())
-    file_key = user_file_key(user_id, document_id, file_name)
-
     try:
+        print("auth verified")
+        file_name = file.filename or "document"
+        contents = await file.read(MAX_FILE_SIZE + 1)
+        file_size = len(contents)
+        mime_type = validate_uploaded_file(file_name, file.content_type, file_size, contents)
+        print("file validated")
+
+        document_id = str(uuid.uuid4())
+        file_key = user_file_key(user_id, document_id, file_name)
+
+        print("r2 upload starting")
         get_r2_client().put_object(
             Bucket=get_env("R2_BUCKET_NAME"),
             Key=file_key,
             Body=contents,
             ContentType=mime_type,
         )
-    except ClientError as exc:
-        raise HTTPException(status_code=500, detail="Could not upload file to storage.") from exc
+        print("r2 upload done")
 
-    row = await save_document_metadata(
-        pool=pool,
-        document_id=document_id,
-        user_id=user_id,
-        file_name=file_name,
-        file_key=file_key,
-        file_size=file_size,
-        mime_type=mime_type,
-    )
-    return document_record(row)
+        print("database insert starting")
+        row = await save_document_metadata(
+            pool=pool,
+            document_id=document_id,
+            user_id=user_id,
+            file_name=file_name,
+            file_key=file_key,
+            file_size=file_size,
+            mime_type=mime_type,
+        )
+        print("database insert done")
+        return document_record(row)
+    except Exception as exc:
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Upload failed",
+                "error": str(exc),
+                "type": exc.__class__.__name__,
+            },
+        )
 
 
 @app.get("/api/documents", response_model=list[DocumentRecord])
