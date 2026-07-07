@@ -340,6 +340,33 @@ async def download_url(
     return DownloadUrlResponse(downloadUrl=signed_url)
 
 
+@app.delete("/api/documents/{document_id}")
+async def delete_document(
+    document_id: str,
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    row = await pool.fetchrow(
+        "select file_key from documents where id = $1 and user_id = $2",
+        uuid.UUID(document_id),
+        uuid.UUID(user_id),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    try:
+        get_r2_client().delete_object(Bucket=get_env("R2_BUCKET_NAME"), Key=row["file_key"])
+    except ClientError as exc:
+        raise HTTPException(status_code=500, detail="Could not delete file from storage.") from exc
+
+    await pool.execute(
+        "delete from documents where id = $1 and user_id = $2",
+        uuid.UUID(document_id),
+        uuid.UUID(user_id),
+    )
+    return {"ok": True}
+
+
 @app.get("/health")
 async def health():
     return {"ok": True}

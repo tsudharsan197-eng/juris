@@ -4,6 +4,7 @@ import Hero from "./sections/Hero.jsx";
 import MeetJuris from "./sections/MeetJuris.jsx";
 import WhyJuris from "./sections/WhyJuris.jsx";
 import Features from "./sections/Features.jsx";
+import HowToUse from "./sections/HowToUse.jsx";
 import Workflow from "./sections/Workflow.jsx";
 import Advantages from "./sections/Advantages.jsx";
 import ProductPreview from "./sections/ProductPreview.jsx";
@@ -18,6 +19,7 @@ export default function App() {
         <MeetJuris />
         <WhyJuris />
         <Features />
+        <HowToUse />
         <Workflow />
         <Advantages />
         <ProductPreview />

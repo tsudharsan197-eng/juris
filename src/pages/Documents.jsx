@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import Button from "../components/Button.jsx";
 import Navbar from "../components/Navbar.jsx";
-import { listDocuments } from "../lib/documentsApi.js";
+import { deleteDocument, listDocuments } from "../lib/documentsApi.js";
 
 export default function Documents() {
   const [documents, setDocuments] = useState([]);
   const [status, setStatus] = useState("loading");
   const [message, setMessage] = useState("");
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -25,6 +26,24 @@ export default function Documents() {
       active = false;
     };
   }, []);
+
+  async function handleDelete(document) {
+    const confirmed = window.confirm("Delete this document forever?");
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(document.id);
+      setMessage("");
+      await deleteDocument(document.id);
+      setDocuments((current) => current.filter((item) => item.id !== document.id));
+      setStatus("ready");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message);
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <>
@@ -53,9 +72,20 @@ export default function Documents() {
                   <h2>{document.title}</h2>
                   <p>{document.file_name}</p>
                 </div>
-                <div>
-                  <strong>{(document.file_size / (1024 * 1024)).toFixed(2)} MB</strong>
-                  <span>{document.mime_type}</span>
+                <div className="document-actions">
+                  <div>
+                    <strong>{(document.file_size / (1024 * 1024)).toFixed(2)} MB</strong>
+                    <span>{document.mime_type}</span>
+                  </div>
+                  <button
+                    className="document-delete"
+                    type="button"
+                    onClick={() => handleDelete(document)}
+                    disabled={deletingId === document.id}
+                    aria-label={`Delete ${document.title}`}
+                  >
+                    {deletingId === document.id ? "Deleting..." : "Delete"}
+                  </button>
                 </div>
               </article>
             ))}

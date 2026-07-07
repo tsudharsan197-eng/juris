@@ -67,6 +67,12 @@ export function listDocuments() {
   return apiFetch("/api/documents");
 }
 
+export function deleteDocument(documentId) {
+  return apiFetch(`/api/documents/${documentId}`, {
+    method: "DELETE",
+  });
+}
+
 export function normalizedContentType(file) {
   const extension = file.name.split(".").pop()?.toLowerCase();
   if (extension === "pdf") return "application/pdf";

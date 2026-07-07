@@ -1,10 +1,15 @@
 import Button from "../components/Button.jsx";
+import { useAuth } from "../components/AuthProvider.jsx";
 
 export default function Hero() {
+  const { user, isSignedIn } = useAuth();
+  const userName = displayName(user);
+
   return (
     <section className="hero section-shell">
       <div className="hero-inner">
         <div className="hero-copy reveal">
+          {isSignedIn && <p className="hero-welcome">Welcome, {userName}</p>}
           <p className="eyebrow">AI legal intelligence workspace</p>
           <h1 className="hero-title">
             Legal documents,
@@ -16,7 +21,9 @@ export default function Hero() {
             questions in plain English.
           </p>
           <div className="hero-actions">
-            <Button to="/create-account">Create Account</Button>
+            <Button to={isSignedIn ? "/upload-document" : "/create-account"}>
+              {isSignedIn ? "Upload Documents" : "Create Account"}
+            </Button>
             <Button href="#how-it-works" variant="secondary">
               See How It Works
             </Button>
@@ -60,4 +67,12 @@ export default function Hero() {
       </div>
     </section>
   );
+}
+
+function displayName(user) {
+  const metadata = user?.user_metadata || {};
+  const name = metadata.full_name || metadata.name;
+  if (name) return name;
+  if (user?.email?.includes("@")) return user.email.split("@")[0];
+  return "back";
 }
