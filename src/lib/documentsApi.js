@@ -60,7 +60,7 @@ export function uploadFileToSignedUrl(uploadUrl, file, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", uploadUrl);
-    xhr.setRequestHeader("Content-Type", normalizedContentType(file));
+    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && onProgress) {

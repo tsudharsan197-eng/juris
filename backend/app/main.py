@@ -222,7 +222,6 @@ async def presign_upload(payload: PresignUploadRequest, user_id: Annotated[str, 
             Params={
                 "Bucket": bucket,
                 "Key": file_key,
-                "ContentType": payload.contentType,
             },
             ExpiresIn=900,
             HttpMethod="PUT",
