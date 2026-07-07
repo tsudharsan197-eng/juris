@@ -17,6 +17,7 @@ export default function UploadDocument() {
   const [status, setStatus] = useState("idle");
   const [progress, setProgress] = useState(0);
   const [message, setMessage] = useState("");
+  const [debugError, setDebugError] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
 
   const fileMeta = useMemo(() => {
@@ -46,11 +47,13 @@ export default function UploadDocument() {
       setFile(nextFile);
       setProgress(0);
       setMessage("File ready for secure upload.");
+      setDebugError(null);
       setStatus("idle");
     } catch (error) {
       setFile(null);
       setProgress(0);
       setMessage(error.message);
+      setDebugError(null);
       setStatus("error");
     }
   }
@@ -66,6 +69,7 @@ export default function UploadDocument() {
       validate(file);
       setStatus("uploading");
       setProgress(8);
+      setDebugError(null);
       setMessage("Uploading through the secure Juris backend...");
       await uploadDocumentFile(file, setProgress);
 
@@ -75,7 +79,15 @@ export default function UploadDocument() {
       window.setTimeout(() => navigate("/documents"), 650);
     } catch (error) {
       setStatus("error");
-      setMessage(error.message);
+      setMessage(error.detail || error.message);
+      setDebugError(
+        error.backendError
+          ? {
+              type: error.backendType || "Error",
+              error: error.backendError,
+            }
+          : null,
+      );
     }
   }
 
@@ -146,6 +158,11 @@ export default function UploadDocument() {
             <div className={`upload-status ${status}`}>
               <span>{status}</span>
               <p>{message || "Waiting for a document."}</p>
+              {debugError && (
+                <code className="upload-error-debug">
+                  {debugError.type}: {debugError.error}
+                </code>
+              )}
             </div>
 
             <div className="upload-actions">

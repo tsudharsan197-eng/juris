@@ -23,9 +23,19 @@ async function apiFetch(path, options = {}) {
 
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(body.detail || body.message || "Document API request failed.");
+    throw apiError(body, "Document API request failed.");
   }
   return body;
+}
+
+function apiError(body, fallback) {
+  const detail = body.detail || body.message || fallback;
+  const diagnostic = body.error ? `${body.type || "Error"}: ${body.error}` : "";
+  const error = new Error(diagnostic ? `${detail} - ${diagnostic}` : detail);
+  error.detail = detail;
+  error.backendError = body.error;
+  error.backendType = body.type;
+  return error;
 }
 
 export async function uploadDocumentFile(file, onProgress) {
@@ -46,7 +56,7 @@ export async function uploadDocumentFile(file, onProgress) {
 
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(body.detail || body.message || "Document upload failed.");
+    throw apiError(body, "Document upload failed.");
   }
 
   onProgress?.(100);
