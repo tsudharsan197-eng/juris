@@ -56,28 +56,19 @@ export function listDocuments() {
   return apiFetch("/api/documents");
 }
 
-export function uploadFileToSignedUrl(uploadUrl, file, onProgress) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", uploadUrl);
-    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+export async function uploadFileToSignedUrl(uploadUrl, file, onProgress) {
+  onProgress?.(35);
 
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable && onProgress) {
-        onProgress(Math.round((event.loaded / event.total) * 100));
-      }
-    };
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve();
-      } else {
-        reject(new Error(`R2 upload failed with status ${xhr.status}.`));
-      }
-    };
-    xhr.onerror = () => reject(new Error("Network error while uploading to storage."));
-    xhr.send(file);
+  const response = await fetch(uploadUrl, {
+    method: "PUT",
+    body: file,
   });
+
+  if (!response.ok) {
+    throw new Error(`R2 upload failed with status ${response.status}.`);
+  }
+
+  onProgress?.(100);
 }
 
 export function normalizedContentType(file) {
