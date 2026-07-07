@@ -3,10 +3,8 @@ import { useNavigate } from "react-router-dom";
 import Button from "../components/Button.jsx";
 import Navbar from "../components/Navbar.jsx";
 import {
-  completeDocumentUpload,
   normalizedContentType,
-  presignDocumentUpload,
-  uploadFileToSignedUrl,
+  uploadDocumentFile,
 } from "../lib/documentsApi.js";
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
@@ -67,19 +65,9 @@ export default function UploadDocument() {
     try {
       validate(file);
       setStatus("uploading");
-      setProgress(4);
-      setMessage("Requesting secure upload URL...");
-      const presigned = await presignDocumentUpload(file);
-
-      setMessage("Uploading directly to private storage...");
-      await uploadFileToSignedUrl(presigned.uploadUrl, file, setProgress);
-
-      setMessage("Saving document metadata...");
-      await completeDocumentUpload({
-        documentId: presigned.documentId,
-        fileKey: presigned.fileKey,
-        file,
-      });
+      setProgress(8);
+      setMessage("Uploading through the secure Juris backend...");
+      await uploadDocumentFile(file, setProgress);
 
       setStatus("uploaded");
       setProgress(100);
@@ -106,8 +94,8 @@ export default function UploadDocument() {
             <p className="eyebrow">Secure document intake</p>
             <h1>Upload a legal document.</h1>
             <p>
-              Juris uploads files directly to a private Cloudflare R2 bucket using short-lived
-              signed URLs. Storage credentials stay on the backend.
+              Juris sends files to a secure FastAPI upload endpoint. The backend verifies your
+              session, stores the file in private Cloudflare R2, and records document metadata.
             </p>
           </div>
 

@@ -1,6 +1,8 @@
+import io
 import os
 import re
 import uuid
+import zipfile
 from datetime import datetime
 from typing import Annotated
 
@@ -10,9 +12,9 @@ import httpx
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 load_dotenv()
 
@@ -23,6 +25,7 @@ SUPPORTED_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
 }
 SUPPORTED_EXTENSIONS = {".pdf", ".doc", ".docx"}
+EXTENSION_CONTENT_TYPES = {extension: mime_type for mime_type, extension in SUPPORTED_TYPES.items()}
 
 app = FastAPI(title="Juris Document API", version="1.0.0")
 
@@ -36,26 +39,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-class PresignUploadRequest(BaseModel):
-    fileName: str = Field(min_length=1, max_length=255)
-    contentType: str = Field(min_length=1, max_length=200)
-    fileSize: int = Field(gt=0, le=MAX_FILE_SIZE)
-
-
-class PresignUploadResponse(BaseModel):
-    documentId: str
-    uploadUrl: str
-    fileKey: str
-
-
-class CompleteUploadRequest(BaseModel):
-    documentId: str
-    fileKey: str
-    fileName: str
-    fileSize: int = Field(gt=0, le=MAX_FILE_SIZE)
-    contentType: str
 
 
 class DocumentRecord(BaseModel):
@@ -124,16 +107,33 @@ async def shutdown():
         await pool.close()
 
 
-def validate_file(file_name: str, content_type: str, file_size: int):
+def validate_uploaded_file(file_name: str, reported_content_type: str | None, file_size: int, contents: bytes) -> str:
     extension = os.path.splitext(file_name.lower())[1]
     if extension not in SUPPORTED_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Only PDF, DOC, and DOCX files are supported.")
-    if content_type not in SUPPORTED_TYPES:
-        raise HTTPException(status_code=400, detail="Unsupported file content type.")
-    if SUPPORTED_TYPES[content_type] != extension:
-        raise HTTPException(status_code=400, detail="File extension does not match content type.")
+    if file_size <= 0:
+        raise HTTPException(status_code=400, detail="File is empty.")
     if file_size > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File size exceeds the 25MB limit.")
+
+    if reported_content_type in SUPPORTED_TYPES and SUPPORTED_TYPES[reported_content_type] != extension:
+        raise HTTPException(status_code=400, detail="File extension does not match content type.")
+
+    if extension == ".pdf" and not contents.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="Uploaded file is not a valid PDF.")
+
+    if extension == ".doc" and not contents.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+        raise HTTPException(status_code=400, detail="Uploaded file is not a valid DOC file.")
+
+    if extension == ".docx":
+        try:
+            with zipfile.ZipFile(io.BytesIO(contents)) as archive:
+                if "word/document.xml" not in archive.namelist():
+                    raise HTTPException(status_code=400, detail="Uploaded file is not a valid DOCX file.")
+        except zipfile.BadZipFile as exc:
+            raise HTTPException(status_code=400, detail="Uploaded file is not a valid DOCX file.") from exc
+
+    return EXTENSION_CONTENT_TYPES[extension]
 
 
 def safe_file_name(file_name: str) -> str:
@@ -208,47 +208,16 @@ def document_record(row) -> DocumentRecord:
     )
 
 
-@app.post("/api/documents/presign-upload", response_model=PresignUploadResponse)
-async def presign_upload(payload: PresignUploadRequest, user_id: Annotated[str, Depends(current_user_id)]):
-    validate_file(payload.fileName, payload.contentType, payload.fileSize)
-
-    document_id = str(uuid.uuid4())
-    file_key = user_file_key(user_id, document_id, payload.fileName)
-    bucket = get_env("R2_BUCKET_NAME")
-
-    try:
-        upload_url = get_r2_client().generate_presigned_url(
-            ClientMethod="put_object",
-            Params={
-                "Bucket": bucket,
-                "Key": file_key,
-            },
-            ExpiresIn=900,
-            HttpMethod="PUT",
-        )
-    except ClientError as exc:
-        raise HTTPException(status_code=500, detail="Could not create upload URL.") from exc
-
-    return PresignUploadResponse(documentId=document_id, uploadUrl=upload_url, fileKey=file_key)
-
-
-@app.post("/api/documents/complete-upload", response_model=DocumentRecord)
-async def complete_upload(
-    payload: CompleteUploadRequest,
-    user_id: Annotated[str, Depends(current_user_id)],
-    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+async def save_document_metadata(
+    pool: asyncpg.Pool,
+    document_id: str,
+    user_id: str,
+    file_name: str,
+    file_key: str,
+    file_size: int,
+    mime_type: str,
 ):
-    validate_file(payload.fileName, payload.contentType, payload.fileSize)
-    expected_prefix = f"users/{user_id}/documents/{payload.documentId}/"
-    if not payload.fileKey.startswith(expected_prefix):
-        raise HTTPException(status_code=403, detail="File key does not belong to the current user.")
-
-    try:
-        get_r2_client().head_object(Bucket=get_env("R2_BUCKET_NAME"), Key=payload.fileKey)
-    except ClientError as exc:
-        raise HTTPException(status_code=400, detail="Uploaded file was not found in storage.") from exc
-
-    row = await pool.fetchrow(
+    return await pool.fetchrow(
         """
         insert into documents (
           id, user_id, title, file_name, file_key, file_size, mime_type,
@@ -264,13 +233,48 @@ async def complete_upload(
         returning id, user_id, title, file_name, file_key, file_size, mime_type,
           storage_provider, status, created_at
         """,
-        uuid.UUID(payload.documentId),
+        uuid.UUID(document_id),
         uuid.UUID(user_id),
-        title_from_file(payload.fileName),
-        payload.fileName,
-        payload.fileKey,
-        payload.fileSize,
-        payload.contentType,
+        title_from_file(file_name),
+        file_name,
+        file_key,
+        file_size,
+        mime_type,
+    )
+
+
+@app.post("/api/documents/upload", response_model=DocumentRecord)
+async def upload_document(
+    file: Annotated[UploadFile, File()],
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    file_name = file.filename or "document"
+    contents = await file.read(MAX_FILE_SIZE + 1)
+    file_size = len(contents)
+    mime_type = validate_uploaded_file(file_name, file.content_type, file_size, contents)
+
+    document_id = str(uuid.uuid4())
+    file_key = user_file_key(user_id, document_id, file_name)
+
+    try:
+        get_r2_client().put_object(
+            Bucket=get_env("R2_BUCKET_NAME"),
+            Key=file_key,
+            Body=contents,
+            ContentType=mime_type,
+        )
+    except ClientError as exc:
+        raise HTTPException(status_code=500, detail="Could not upload file to storage.") from exc
+
+    row = await save_document_metadata(
+        pool=pool,
+        document_id=document_id,
+        user_id=user_id,
+        file_name=file_name,
+        file_key=file_key,
+        file_size=file_size,
+        mime_type=mime_type,
     )
     return document_record(row)
 

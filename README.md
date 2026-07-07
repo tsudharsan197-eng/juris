@@ -25,10 +25,10 @@ The auth UI includes create account, sign in, forgot password, and reset passwor
 The React app includes `/upload-document` and `/documents`. Uploads use this flow:
 
 1. React validates PDF/DOC/DOCX files up to 25MB.
-2. React sends the Supabase access token to FastAPI.
-3. FastAPI verifies the access token with Supabase Auth and creates a short-lived Cloudflare R2 presigned PUT URL.
-4. React uploads directly to R2.
-5. React calls FastAPI to save metadata in the `documents` table.
+2. React sends the file to FastAPI as `multipart/form-data` at `/api/documents/upload`.
+3. FastAPI verifies the Supabase access token with Supabase Auth.
+4. FastAPI uploads the file to private Cloudflare R2 with server-side credentials.
+5. FastAPI saves metadata in the `documents` table.
 
 Run the API:
 

@@ -28,47 +28,33 @@ async function apiFetch(path, options = {}) {
   return body;
 }
 
-export function presignDocumentUpload(file) {
-  return apiFetch("/api/documents/presign-upload", {
-    method: "POST",
-    body: JSON.stringify({
-      fileName: file.name,
-      contentType: normalizedContentType(file),
-      fileSize: file.size,
-    }),
-  });
-}
+export async function uploadDocumentFile(file, onProgress) {
+  const token = await accessToken();
+  const formData = new FormData();
+  formData.append("file", file);
+  onProgress?.(18);
 
-export function completeDocumentUpload({ documentId, fileKey, file }) {
-  return apiFetch("/api/documents/complete-upload", {
+  const response = await fetch(`${API_BASE_URL}/api/documents/upload`, {
     method: "POST",
-    body: JSON.stringify({
-      documentId,
-      fileKey,
-      fileName: file.name,
-      fileSize: file.size,
-      contentType: normalizedContentType(file),
-    }),
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
   });
+
+  onProgress?.(82);
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.detail || body.message || "Document upload failed.");
+  }
+
+  onProgress?.(100);
+  return body;
 }
 
 export function listDocuments() {
   return apiFetch("/api/documents");
-}
-
-export async function uploadFileToSignedUrl(uploadUrl, file, onProgress) {
-  onProgress?.(35);
-
-  const response = await fetch(uploadUrl, {
-    method: "PUT",
-    body: file,
-  });
-
-  if (!response.ok) {
-    throw new Error(`R2 upload failed with status ${response.status}.`);
-  }
-
-  onProgress?.(100);
 }
 
 export function normalizedContentType(file) {
