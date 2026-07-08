@@ -1,4 +1,6 @@
+import asyncio
 import io
+import math
 import os
 import re
 import traceback
@@ -16,11 +18,20 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from google import genai
+from google.genai import types
+from pypdf import PdfReader
 from pydantic import BaseModel
 
 load_dotenv()
 
 MAX_FILE_SIZE = 25 * 1024 * 1024
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 150
+EMBEDDING_BATCH_SIZE = 64
+EMBEDDING_MODEL = "gemini-embedding-001"
+EMBEDDING_DIMENSIONS = 768
+ANSWER_MODELS = ("gemini-2.5-flash", "gemini-1.5-flash")
 SUPPORTED_TYPES = {
     "application/pdf": ".pdf",
     "application/msword": ".doc",
@@ -58,6 +69,20 @@ class DocumentRecord(BaseModel):
 
 class DownloadUrlResponse(BaseModel):
     downloadUrl: str
+
+
+class AskDocumentRequest(BaseModel):
+    question: str
+
+
+class AskSource(BaseModel):
+    chunk_index: int
+    preview: str
+
+
+class AskDocumentResponse(BaseModel):
+    answer: str
+    sources: list[AskSource]
 
 
 def get_env(name: str) -> str:
@@ -210,6 +235,138 @@ def document_record(row) -> DocumentRecord:
     )
 
 
+def extract_pdf_text(contents: bytes) -> tuple[str, int]:
+    reader = PdfReader(io.BytesIO(contents))
+    page_text = []
+    for index, page in enumerate(reader.pages, start=1):
+        text = page.extract_text() or ""
+        page_text.append(f"\n\n--- Page {index} ---\n{text.strip()}")
+
+    extracted_text = "\n".join(page_text).strip()
+    if not extracted_text:
+        raise ValueError("No extractable English text found in PDF.")
+
+    return extracted_text, len(reader.pages)
+
+
+def chunk_text(text_content: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    normalized = re.sub(r"\s+", " ", text_content).strip()
+    if not normalized:
+        return []
+
+    chunks = []
+    start = 0
+    while start < len(normalized):
+        end = min(start + chunk_size, len(normalized))
+        chunks.append(normalized[start:end].strip())
+        if end == len(normalized):
+            break
+        start = max(end - overlap, start + 1)
+    return [chunk for chunk in chunks if chunk]
+
+
+async def generate_embeddings(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
+    if not texts:
+        return []
+
+    api_key = get_env("GEMINI_API_KEY")
+    embeddings = []
+
+    for start in range(0, len(texts), EMBEDDING_BATCH_SIZE):
+        batch = texts[start:start + EMBEDDING_BATCH_SIZE]
+        batch_embeddings = await asyncio.to_thread(generate_gemini_embeddings_batch, api_key, batch, task_type)
+        if len(batch_embeddings) != len(batch):
+            raise RuntimeError("Gemini embeddings response count did not match chunk count.")
+        embeddings.extend(batch_embeddings)
+
+    if len(embeddings) != len(texts):
+        raise RuntimeError("Gemini embeddings response count did not match chunk count.")
+    if any(len(embedding) != EMBEDDING_DIMENSIONS for embedding in embeddings):
+        raise RuntimeError("Gemini embeddings response dimensions did not match document_chunks.embedding.")
+    return embeddings
+
+
+def generate_gemini_embeddings_batch(api_key: str, texts: list[str], task_type: str) -> list[list[float]]:
+    client = genai.Client(api_key=api_key)
+    result = client.models.embed_content(
+        model=EMBEDDING_MODEL,
+        contents=texts,
+        config=types.EmbedContentConfig(
+            task_type=task_type,
+            output_dimensionality=EMBEDDING_DIMENSIONS,
+        ),
+    )
+    return [normalize_embedding(embedding.values) for embedding in result.embeddings]
+
+
+async def generate_answer(prompt: str) -> str:
+    api_key = get_env("GEMINI_API_KEY")
+    return await asyncio.to_thread(generate_gemini_answer, api_key, prompt)
+
+
+def generate_gemini_answer(api_key: str, prompt: str) -> str:
+    client = genai.Client(api_key=api_key)
+    last_error = None
+    for model in ANSWER_MODELS:
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    max_output_tokens=700,
+                ),
+            )
+            answer = getattr(response, "text", "") or ""
+            return answer.strip()
+        except Exception as exc:
+            last_error = exc
+
+    raise RuntimeError(f"Gemini answer generation failed: {last_error}") from last_error
+
+
+def normalize_embedding(embedding: list[float]) -> list[float]:
+    magnitude = math.sqrt(sum(value * value for value in embedding))
+    if magnitude == 0:
+        return embedding
+    return [value / magnitude for value in embedding]
+
+
+def vector_literal(embedding: list[float]) -> str:
+    return "[" + ",".join(str(value) for value in embedding) + "]"
+
+
+def chunk_preview(text: str, limit: int = 220) -> str:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[:limit].rstrip()}..."
+
+
+def build_document_answer_prompt(question: str, chunks) -> str:
+    chunk_blocks = "\n\n".join(
+        f"[Chunk {row['chunk_index']}]\n{row['chunk_text']}"
+        for row in chunks
+    )
+    return f"""
+You are Juris, an AI legal document assistant.
+
+Answer the user's question using only the document chunks below.
+Do not use outside knowledge.
+Do not hallucinate or infer facts that are not present in the chunks.
+If the answer is not found in the chunks, say exactly:
+"I could not find that information in this document."
+Keep the answer clear and simple.
+Mention the chunk numbers used when possible.
+
+Document chunks:
+{chunk_blocks}
+
+Question:
+{question}
+""".strip()
+
+
 async def save_document_metadata(
     pool: asyncpg.Pool,
     document_id: str,
@@ -242,6 +399,113 @@ async def save_document_metadata(
         file_key,
         file_size,
         mime_type,
+    )
+
+
+async def save_document_text(
+    pool: asyncpg.Pool,
+    document_id: str,
+    user_id: str,
+    text_content: str,
+    page_count: int,
+):
+    await pool.execute(
+        """
+        insert into document_text (
+          document_id, user_id, text_content, page_count, language, created_at, updated_at
+        )
+        values ($1, $2, $3, $4, 'en', now(), now())
+        on conflict (document_id) do update set
+          text_content = excluded.text_content,
+          page_count = excluded.page_count,
+          language = 'en',
+          updated_at = now()
+        """,
+        uuid.UUID(document_id),
+        uuid.UUID(user_id),
+        text_content,
+        page_count,
+    )
+
+
+async def save_document_chunks(
+    pool: asyncpg.Pool,
+    document_id: str,
+    user_id: str,
+    chunks: list[str],
+    embeddings: list[list[float]],
+):
+    if len(chunks) != len(embeddings):
+        raise ValueError("Chunk and embedding counts must match.")
+
+    document_uuid = uuid.UUID(document_id)
+    user_uuid = uuid.UUID(user_id)
+    async with pool.acquire() as connection:
+        async with connection.transaction():
+            await connection.execute("delete from document_chunks where document_id = $1", document_uuid)
+            if chunks:
+                await connection.executemany(
+                    """
+                    insert into document_chunks (
+                      document_id, user_id, chunk_index, chunk_text, embedding, created_at
+                    )
+                    values ($1, $2, $3, $4, $5::vector, now())
+                    """,
+                    [
+                        (document_uuid, user_uuid, index, chunk, vector_literal(embeddings[index]))
+                        for index, chunk in enumerate(chunks)
+                    ],
+                )
+
+
+async def update_document_status(pool: asyncpg.Pool, document_id: str, user_id: str, status_value: str):
+    return await pool.fetchrow(
+        """
+        update documents
+        set status = $3
+        where id = $1 and user_id = $2
+        returning id, user_id, title, file_name, file_key, file_size, mime_type,
+          storage_provider, status, created_at
+        """,
+        uuid.UUID(document_id),
+        uuid.UUID(user_id),
+        status_value,
+    )
+
+
+async def get_owned_document(pool: asyncpg.Pool, document_id: str, user_id: str):
+    return await pool.fetchrow(
+        """
+        select id, user_id, title, file_name, status
+        from documents
+        where id = $1 and user_id = $2
+        """,
+        uuid.UUID(document_id),
+        uuid.UUID(user_id),
+    )
+
+
+async def search_document_chunks(
+    pool: asyncpg.Pool,
+    document_id: str,
+    user_id: str,
+    question_embedding: list[float],
+    limit: int = 5,
+):
+    return await pool.fetch(
+        """
+        select chunk_index, chunk_text
+        from document_chunks
+        where document_id = $1
+          and user_id = $2
+          and embedding is not null
+        order by embedding <=> $3::vector
+        limit $4
+        """,
+        uuid.UUID(document_id),
+        uuid.UUID(user_id),
+        vector_literal(question_embedding),
+        limit,
     )
 
 
@@ -282,6 +546,29 @@ async def upload_document(
             mime_type=mime_type,
         )
         print("database insert done")
+        if mime_type == "application/pdf":
+            try:
+                print("pdf extraction starting")
+                extracted_text, page_count = extract_pdf_text(contents)
+                await save_document_text(
+                    pool=pool,
+                    document_id=document_id,
+                    user_id=user_id,
+                    text_content=extracted_text,
+                    page_count=page_count,
+                )
+                chunks = chunk_text(extracted_text)
+                print("chunk embedding starting")
+                embeddings = await generate_embeddings(chunks)
+                await save_document_chunks(pool, document_id, user_id, chunks, embeddings)
+                print("chunk embedding done")
+                row = await update_document_status(pool, document_id, user_id, "processed")
+                print("pdf extraction done")
+            except Exception as exc:
+                traceback.print_exc()
+                row = await update_document_status(pool, document_id, user_id, "extraction_failed")
+                print(f"pdf extraction failed: {exc}")
+
         return document_record(row)
     except Exception as exc:
         traceback.print_exc()
@@ -338,6 +625,50 @@ async def download_url(
         raise HTTPException(status_code=500, detail="Could not create download URL.") from exc
 
     return DownloadUrlResponse(downloadUrl=signed_url)
+
+
+@app.post("/api/documents/{document_id}/ask", response_model=AskDocumentResponse)
+async def ask_document(
+    document_id: str,
+    request: AskDocumentRequest,
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    question = request.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question is required.")
+
+    document = await get_owned_document(pool, document_id, user_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    question_embedding = (await generate_embeddings([question], task_type="RETRIEVAL_QUERY"))[0]
+    chunks = await search_document_chunks(
+        pool=pool,
+        document_id=document_id,
+        user_id=user_id,
+        question_embedding=question_embedding,
+        limit=5,
+    )
+
+    if not chunks:
+        return AskDocumentResponse(
+            answer="I could not find that information in this document.",
+            sources=[],
+        )
+
+    prompt = build_document_answer_prompt(question, chunks)
+    answer = await generate_answer(prompt)
+    if not answer:
+        answer = "I could not find that information in this document."
+
+    return AskDocumentResponse(
+        answer=answer,
+        sources=[
+            AskSource(chunk_index=row["chunk_index"], preview=chunk_preview(row["chunk_text"]))
+            for row in chunks
+        ],
+    )
 
 
 @app.delete("/api/documents/{document_id}")

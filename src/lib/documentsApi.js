@@ -77,6 +77,13 @@ export function getDocumentDownloadUrl(documentId) {
   return apiFetch(`/api/documents/${documentId}/download-url`);
 }
 
+export function askDocumentQuestion(documentId, question) {
+  return apiFetch(`/api/documents/${documentId}/ask`, {
+    method: "POST",
+    body: JSON.stringify({ question }),
+  });
+}
+
 export function normalizedContentType(file) {
   const extension = file.name.split(".").pop()?.toLowerCase();
   if (extension === "pdf") return "application/pdf";

@@ -41,5 +41,6 @@ uvicorn app.main:app --reload
 ```
 
 Apply the database migration in `backend/db/migrations/001_documents_r2.sql`.
+Apply `backend/db/migrations/002_document_text.sql` to store extracted PDF text, apply `backend/db/migrations/003_document_chunks.sql` to store overlapping text chunks, then apply `backend/db/migrations/004_chunk_embeddings.sql` to add pgvector Gemini embeddings. PDF uploads are processed with `pypdf`; successful extraction, chunking, and embedding sets `documents.status` to `processed`, and extraction failures set it to `extraction_failed`.
 
-The backend needs `SUPABASE_URL` and `SUPABASE_ANON_KEY` or `SUPABASE_SERVICE_ROLE_KEY` to call `{SUPABASE_URL}/auth/v1/user`. R2 credentials only belong in backend environment variables. The frontend uses `VITE_API_BASE_URL` and Supabase public client keys only.
+The backend needs `SUPABASE_URL` and `SUPABASE_ANON_KEY` or `SUPABASE_SERVICE_ROLE_KEY` to call `{SUPABASE_URL}/auth/v1/user`, plus `GEMINI_API_KEY` to generate embeddings. R2 credentials only belong in backend environment variables. The frontend uses `VITE_API_BASE_URL` and Supabase public client keys only.

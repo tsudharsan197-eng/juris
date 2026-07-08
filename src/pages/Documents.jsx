@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import Button from "../components/Button.jsx";
 import Navbar from "../components/Navbar.jsx";
-import { deleteDocument, getDocumentDownloadUrl, listDocuments } from "../lib/documentsApi.js";
+import {
+  deleteDocument,
+  getDocumentDownloadUrl,
+  listDocuments,
+} from "../lib/documentsApi.js";
 
 export default function Documents() {
   const [documents, setDocuments] = useState([]);
@@ -65,6 +69,13 @@ export default function Documents() {
     }
   }
 
+  function documentStatusLabel(statusValue) {
+    if (statusValue === "processed") return "Document Processed";
+    if (statusValue === "uploaded") return "Uploaded";
+    if (statusValue === "extraction_failed") return "Processing failed";
+    return "Processing...";
+  }
+
   return (
     <>
       <Navbar />
@@ -99,6 +110,20 @@ export default function Documents() {
                     <span>{document.mime_type}</span>
                   </div>
                   <div className="document-action-buttons">
+                    {document.status === "processed" ? (
+                      <Button
+                        to={`/documents/${document.id}/workspace`}
+                        variant="secondary"
+                        className="document-processed-button"
+                        aria-label={`Open AI workspace for ${document.title}`}
+                      >
+                        Document Processed
+                      </Button>
+                    ) : (
+                      <span className={`document-status-pill status-${document.status}`}>
+                        {documentStatusLabel(document.status)}
+                      </span>
+                    )}
                     <button
                       className="document-action-button"
                       type="button"
