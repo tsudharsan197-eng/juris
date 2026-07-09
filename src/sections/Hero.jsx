@@ -9,7 +9,12 @@ export default function Hero() {
     <section className="hero section-shell">
       <div className="hero-inner">
         <div className="hero-copy reveal">
-          {isSignedIn && <p className="hero-welcome">Welcome, {userName}</p>}
+          {isSignedIn && (
+            <div className="hero-greeting" aria-label={`Welcome back, ${userName}`}>
+              <span>Welcome back</span>
+              <strong>{userName}</strong>
+            </div>
+          )}
           <p className="eyebrow">AI legal intelligence workspace</p>
           <h1 className="hero-title">
             Legal documents,
@@ -31,37 +36,78 @@ export default function Hero() {
         </div>
 
         <div
-          className="hero-preview hero-visual reveal delay-1"
-          aria-label="Juris product intelligence preview"
+          className="hero-preview ai-console reveal delay-1"
+          aria-label="Juris AI legal analysis console preview"
         >
           <div className="grain" />
-          <div className="visual-tile gradient-tile">
-            <span>Document intelligence</span>
-            <strong>12 clauses extracted</strong>
+          <div className="console-glow" aria-hidden="true" />
+          <div className="console-scan" aria-hidden="true" />
+
+          <div className="console-header">
+            <div>
+              <span>Document Intelligence</span>
+              <strong>Contract scanned</strong>
+            </div>
+            <div className="console-status">
+              <i />
+              Live analysis
+            </div>
           </div>
-          <div className="visual-tile doc-preview">
-            <div className="doc-line wide" />
-            <div className="doc-line" />
-            <div className="doc-line short" />
-            <div className="annotation">Clause 9: termination</div>
+
+          <div className="console-document">
+            <div className="doc-chip active">Termination clause detected</div>
+            <div className="console-lines">
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="source-dots" aria-label="Source confidence indicators">
+              <i />
+              <i />
+              <i />
+            </div>
           </div>
-          <div className="visual-tile risk-card">
-            <span>Risk score</span>
-            <strong>82</strong>
-            <small>Early termination fee detected</small>
+
+          <div className="console-grid">
+            <section className="console-panel clause-panel">
+              <div className="panel-topline">
+                <span>Clause Extraction</span>
+                <b>12 clauses extracted</b>
+              </div>
+              <div className="clause-chip-row">
+                <span>Payment</span>
+                <span>Renewal</span>
+                <span>Liability</span>
+              </div>
+              <div className="clause-rows">
+                <p>Governing law identified</p>
+                <p>Renewal window captured</p>
+                <p>Notice period matched</p>
+              </div>
+            </section>
+
+            <section className="console-panel risk-signal">
+              <span>Risk Signal</span>
+              <strong className="risk-score" aria-label="Risk score 82">82</strong>
+              <p>Early renewal risk</p>
+            </section>
           </div>
-          <div className="visual-tile clause-card">
-            <span>Clause extraction</span>
-            <p>Payment terms, governing law, confidentiality, renewal window.</p>
-          </div>
-          <div className="visual-tile chat-preview">
-            <div className="chat-row user">Can this renew automatically?</div>
-            <div className="chat-row ai">Yes. Clause 6 renews for 12 months unless cancelled.</div>
-          </div>
-          <div className="visual-tile pulse-panel">
-            <div />
-            <div />
-            <div />
+
+          <div className="console-footer-grid">
+            <section className="console-panel chat-console">
+              <span>Ask Juris</span>
+              <div className="console-chat-row user">Can this renew automatically?</div>
+              <div className="console-chat-row ai">Yes. Clause 6 renews for 12 months unless cancelled.</div>
+            </section>
+
+            <section className="console-panel confidence-panel">
+              <span>Confidence</span>
+              <strong>97%</strong>
+              <div className="confidence-track">
+                <i />
+              </div>
+            </section>
           </div>
         </div>
       </div>
@@ -72,7 +118,11 @@ export default function Hero() {
 function displayName(user) {
   const metadata = user?.user_metadata || {};
   const name = metadata.full_name || metadata.name;
-  if (name) return name;
+  if (name) return firstName(name);
   if (user?.email?.includes("@")) return user.email.split("@")[0];
   return "back";
+}
+
+function firstName(name) {
+  return String(name).trim().split(/\s+/)[0] || "back";
 }
