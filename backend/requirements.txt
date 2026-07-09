@@ -3,7 +3,7 @@ uvicorn[standard]==0.34.0
 boto3==1.35.90
 httpx==0.28.1
 asyncpg==0.30.0
-google-genai
+openai>=1.99.0
 python-dotenv==1.0.1
 python-multipart==0.0.20
 pypdf==5.1.0

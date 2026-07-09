@@ -1,8 +1,11 @@
 import asyncio
+import hashlib
 import io
+import json
 import math
 import os
 import re
+import time
 import traceback
 import uuid
 import zipfile
@@ -15,11 +18,10 @@ import httpx
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, status
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from google import genai
-from google.genai import types
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, OpenAIError
 from pypdf import PdfReader
 from pydantic import BaseModel
 
@@ -28,10 +30,16 @@ load_dotenv()
 MAX_FILE_SIZE = 25 * 1024 * 1024
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 150
-EMBEDDING_BATCH_SIZE = 64
-EMBEDDING_MODEL = "gemini-embedding-001"
-EMBEDDING_DIMENSIONS = 768
-ANSWER_MODELS = ("gemini-2.5-flash", "gemini-1.5-flash")
+OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-5-mini")
+OPENAI_ANALYSIS_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-5-mini")
+EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "16"))
+AI_TIMEOUT_SECONDS = int(os.getenv("OPENAI_TIMEOUT_SECONDS", os.getenv("AI_TIMEOUT_SECONDS", "120")))
+COMPARE_TIMEOUT_SECONDS = int(os.getenv("OPENAI_COMPARE_TIMEOUT_SECONDS", "180"))
+COMPARE_MAX_OUTPUT_TOKENS = int(os.getenv("OPENAI_COMPARE_MAX_OUTPUT_TOKENS", "1800"))
+COMPARE_CONTEXT_CHAR_BUDGET = int(os.getenv("COMPARE_CONTEXT_CHAR_BUDGET", "8000"))
+COMPARE_MAX_CHUNKS_PER_DOCUMENT = int(os.getenv("COMPARE_MAX_CHUNKS_PER_DOCUMENT", "8"))
 SUPPORTED_TYPES = {
     "application/pdf": ".pdf",
     "application/msword": ".doc",
@@ -54,6 +62,134 @@ app.add_middleware(
 )
 
 
+class AIProviderError(Exception):
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_type: str = "AIProviderError",
+        model: str | None = None,
+        status_code: int = 502,
+        raw_response: str | None = None,
+    ):
+        super().__init__(message)
+        self.error_type = error_type
+        self.model = model
+        self.status_code = status_code
+        self.raw_response = raw_response
+
+
+def request_id() -> str:
+    return uuid.uuid4().hex[:12]
+
+
+def success_envelope(data, request_id_value: str):
+    return {
+        "success": True,
+        "data": data,
+        "error": None,
+        "requestId": request_id_value,
+    }
+
+
+def error_envelope_response(
+    *,
+    message: str,
+    request_id_value: str,
+    status_code_value: int = 500,
+    error_type: str = "ServerError",
+    details=None,
+):
+    content = {
+        "success": False,
+        "data": None,
+        "error": {
+            "message": message,
+            "type": error_type,
+            "details": details,
+            "requestId": request_id_value,
+        },
+        "requestId": request_id_value,
+    }
+    print(
+        f"[api:error] request_id={request_id_value} status={status_code_value} "
+        f"type={error_type} message={message} details={details}"
+    )
+    return JSONResponse(status_code=status_code_value, content=content)
+
+
+def log_exception(stage: str, exc: Exception, request_id_value: str, **context):
+    print(
+        f"[backend:exception] request_id={request_id_value} stage={stage} "
+        f"type={exc.__class__.__name__} message={exc} context={context}"
+    )
+    traceback.print_exc()
+
+
+def sanitize_log_text(value: str | None, limit: int = 8000) -> str:
+    if value is None:
+        return ""
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}... [truncated {len(value) - limit} chars]"
+
+
+def upstream_status_from_exception(exc: Exception) -> int:
+    for attribute in ("status_code", "code"):
+        value = getattr(exc, attribute, None)
+        if isinstance(value, int):
+            return value
+    message = str(exc).lower()
+    if "429" in message or "quota" in message or "rate limit" in message:
+        return 429
+    if "401" in message or "403" in message or "permission" in message or "api key" in message:
+        return 502
+    return 502
+
+
+@app.middleware("http")
+async def log_http_requests(request: Request, call_next):
+    started_at = time.perf_counter()
+    req_id = request.headers.get("x-request-id") or request_id()
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = round((time.perf_counter() - started_at) * 1000)
+        log_exception("http_request", exc, req_id, path=request.url.path, duration_ms=duration_ms)
+        raise
+
+    duration_ms = round((time.perf_counter() - started_at) * 1000)
+    print(
+        f"[api:request] request_id={req_id} method={request.method} "
+        f"path={request.url.path} status={response.status_code} duration_ms={duration_ms}"
+    )
+    response.headers["x-request-id"] = req_id
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def structured_http_exception_handler(request: Request, exc: HTTPException):
+    req_id = request.headers.get("x-request-id") or request_id()
+    return error_envelope_response(
+        message=str(exc.detail),
+        request_id_value=req_id,
+        status_code_value=exc.status_code,
+        error_type="HTTPException",
+    )
+
+
+@app.exception_handler(Exception)
+async def structured_exception_handler(request: Request, exc: Exception):
+    req_id = request.headers.get("x-request-id") or request_id()
+    log_exception("unhandled_exception", exc, req_id, path=request.url.path)
+    return error_envelope_response(
+        message=str(exc),
+        request_id_value=req_id,
+        status_code_value=500,
+        error_type=exc.__class__.__name__,
+    )
+
+
 class DocumentRecord(BaseModel):
     id: str
     user_id: str
@@ -73,6 +209,10 @@ class DownloadUrlResponse(BaseModel):
 
 class AskDocumentRequest(BaseModel):
     question: str
+
+
+class CompareDocumentsRequest(BaseModel):
+    second_document_id: str
 
 
 class AskSource(BaseModel):
@@ -124,7 +264,11 @@ async def get_db_pool():
 @app.on_event("startup")
 async def startup():
     database_url = os.getenv("DATABASE_URL")
-    app.state.db_pool = await asyncpg.create_pool(database_url) if database_url else None
+    app.state.db_pool = (
+        await asyncpg.create_pool(database_url, statement_cache_size=0)
+        if database_url
+        else None
+    )
 
 
 @app.on_event("shutdown")
@@ -201,12 +345,17 @@ async def current_user_id(token: Annotated[str, Depends(bearer_token)]) -> str:
                 },
             )
     except httpx.HTTPError as exc:
+        print(f"[supabase:auth] status=unavailable type={exc.__class__.__name__} message={exc}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Could not verify auth token with Supabase.",
         ) from exc
 
     if response.status_code != 200:
+        print(
+            f"[supabase:auth] status={response.status_code} "
+            f"body={sanitize_log_text(response.text, limit=1200)}"
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid auth token.")
 
     payload = response.json()
@@ -265,64 +414,603 @@ def chunk_text(text_content: str, chunk_size: int = CHUNK_SIZE, overlap: int = C
     return [chunk for chunk in chunks if chunk]
 
 
+def get_openai_client(timeout_seconds: int | None = None) -> OpenAI:
+    return OpenAI(api_key=get_env("OPENAI_API_KEY"), timeout=timeout_seconds or AI_TIMEOUT_SECONDS)
+
+
+def openai_error_message(exc: Exception, operation: str, model: str) -> str:
+    if isinstance(exc, APIConnectionError):
+        return "OpenAI API is not reachable. Check network access and OPENAI_API_KEY."
+    if isinstance(exc, APITimeoutError):
+        return f"OpenAI {operation} timed out after {AI_TIMEOUT_SECONDS} seconds."
+    if isinstance(exc, APIStatusError):
+        return f"OpenAI {operation} failed with HTTP {exc.status_code}: {exc}"
+    return f"OpenAI {operation} failed for model {model}: {exc}"
+
+
+def openai_error_status(exc: Exception) -> int:
+    if isinstance(exc, APIConnectionError):
+        return 503
+    if isinstance(exc, APITimeoutError):
+        return 504
+    if isinstance(exc, APIStatusError):
+        return exc.status_code if exc.status_code in {400, 401, 403, 404, 429} else 502
+    return 502
+
+
+def openai_raw_response(exc: Exception) -> str | None:
+    response = getattr(exc, "response", None)
+    text = getattr(response, "text", None)
+    return sanitize_log_text(text or str(exc))
+
+
+def raise_openai_error(exc: Exception, *, model: str, operation: str):
+    raise AIProviderError(
+        openai_error_message(exc, operation, model),
+        error_type=exc.__class__.__name__,
+        model=model,
+        status_code=openai_error_status(exc),
+        raw_response=openai_raw_response(exc),
+    ) from exc
+
+
 async def generate_embeddings(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
     if not texts:
         return []
 
-    api_key = get_env("GEMINI_API_KEY")
     embeddings = []
 
     for start in range(0, len(texts), EMBEDDING_BATCH_SIZE):
         batch = texts[start:start + EMBEDDING_BATCH_SIZE]
-        batch_embeddings = await asyncio.to_thread(generate_gemini_embeddings_batch, api_key, batch, task_type)
+        batch_embeddings = await asyncio.to_thread(generate_openai_embeddings_batch, batch)
         if len(batch_embeddings) != len(batch):
-            raise RuntimeError("Gemini embeddings response count did not match chunk count.")
+            raise RuntimeError("OpenAI embeddings response count did not match chunk count.")
         embeddings.extend(batch_embeddings)
 
     if len(embeddings) != len(texts):
-        raise RuntimeError("Gemini embeddings response count did not match chunk count.")
+        raise RuntimeError("OpenAI embeddings response count did not match chunk count.")
     if any(len(embedding) != EMBEDDING_DIMENSIONS for embedding in embeddings):
-        raise RuntimeError("Gemini embeddings response dimensions did not match document_chunks.embedding.")
+        raise RuntimeError(
+            f"OpenAI embeddings response dimensions did not match the configured "
+            f"{EMBEDDING_DIMENSIONS}-dimension document_chunks.embedding. "
+            f"Check that OPENAI_EMBED_MODEL is set to {OPENAI_EMBED_MODEL}."
+        )
     return embeddings
 
 
-def generate_gemini_embeddings_batch(api_key: str, texts: list[str], task_type: str) -> list[list[float]]:
-    client = genai.Client(api_key=api_key)
-    result = client.models.embed_content(
-        model=EMBEDDING_MODEL,
-        contents=texts,
-        config=types.EmbedContentConfig(
-            task_type=task_type,
-            output_dimensionality=EMBEDDING_DIMENSIONS,
-        ),
+def generate_openai_embeddings_batch(texts: list[str]) -> list[list[float]]:
+    print(
+        f"[openai:embed] model={OPENAI_EMBED_MODEL} batch_size={len(texts)} "
+        f"dimensions={EMBEDDING_DIMENSIONS}"
     )
-    return [normalize_embedding(embedding.values) for embedding in result.embeddings]
+    try:
+        response = get_openai_client().embeddings.create(
+            model=OPENAI_EMBED_MODEL,
+            input=texts,
+        )
+    except OpenAIError as exc:
+        raise_openai_error(exc, model=OPENAI_EMBED_MODEL, operation="embedding")
+
+    embeddings = [item.embedding for item in response.data]
+    normalized_embeddings = [normalize_embedding(embedding) for embedding in embeddings]
+    print(f"[openai:embed] model={OPENAI_EMBED_MODEL} returned={len(normalized_embeddings)}")
+    return normalized_embeddings
 
 
 async def generate_answer(prompt: str) -> str:
-    api_key = get_env("GEMINI_API_KEY")
-    return await asyncio.to_thread(generate_gemini_answer, api_key, prompt)
+    return await generate_text(prompt, max_output_tokens=700, model=OPENAI_CHAT_MODEL)
 
 
-def generate_gemini_answer(api_key: str, prompt: str) -> str:
-    client = genai.Client(api_key=api_key)
-    last_error = None
-    for model in ANSWER_MODELS:
+async def generate_summary(prompt: str) -> str:
+    return await generate_text(prompt, max_output_tokens=3200, model=OPENAI_ANALYSIS_MODEL)
+
+
+async def generate_clauses(prompt: str) -> dict:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(generate_openai_json, prompt, 5200, OPENAI_ANALYSIS_MODEL),
+            timeout=AI_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError as exc:
+        raise AIProviderError(
+            f"OpenAI clause intelligence request timed out after {AI_TIMEOUT_SECONDS} seconds.",
+            error_type="TimeoutError",
+            model=OPENAI_ANALYSIS_MODEL,
+            status_code=504,
+        ) from exc
+
+
+async def generate_risk_analysis(prompt: str) -> dict:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(generate_openai_json, prompt, 5200, OPENAI_ANALYSIS_MODEL),
+            timeout=AI_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError as exc:
+        raise AIProviderError(
+            f"OpenAI risk analysis request timed out after {AI_TIMEOUT_SECONDS} seconds.",
+            error_type="TimeoutError",
+            model=OPENAI_ANALYSIS_MODEL,
+            status_code=504,
+        ) from exc
+
+
+async def generate_document_compare(prompt: str) -> dict:
+    last_empty_response = None
+    for attempt in range(2):
         try:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.1,
-                    max_output_tokens=700,
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    generate_openai_json,
+                    prompt,
+                    COMPARE_MAX_OUTPUT_TOKENS,
+                    OPENAI_ANALYSIS_MODEL,
+                    COMPARE_TIMEOUT_SECONDS,
                 ),
+                timeout=COMPARE_TIMEOUT_SECONDS,
             )
-            answer = getattr(response, "text", "") or ""
-            return answer.strip()
-        except Exception as exc:
-            last_error = exc
+        except AIProviderError as exc:
+            if exc.error_type == "EmptyOpenAIResponse" and attempt == 0:
+                last_empty_response = exc
+                print(
+                    f"[ai:compare:retry] reason=empty_response "
+                    f"attempt={attempt + 1} model={OPENAI_ANALYSIS_MODEL}"
+                )
+                continue
+            if exc.error_type in {"EmptyOpenAIResponse", "APITimeoutError", "TimeoutError"}:
+                raise AIProviderError(
+                    "Compare took too long or returned no output. Try again with shorter documents.",
+                    error_type=exc.error_type,
+                    model=exc.model or OPENAI_ANALYSIS_MODEL,
+                    status_code=504,
+                    raw_response=exc.raw_response,
+                ) from exc
+            raise
+        except asyncio.TimeoutError as exc:
+            raise AIProviderError(
+                "Compare took too long or returned no output. Try again with shorter documents.",
+                error_type="TimeoutError",
+                model=OPENAI_ANALYSIS_MODEL,
+                status_code=504,
+            ) from exc
 
-    raise RuntimeError(f"Gemini answer generation failed: {last_error}") from last_error
+    raise AIProviderError(
+        "Compare took too long or returned no output. Try again with shorter documents.",
+        error_type="EmptyOpenAIResponse",
+        model=OPENAI_ANALYSIS_MODEL,
+        status_code=504,
+        raw_response=last_empty_response.raw_response if last_empty_response else "",
+    )
+
+
+async def generate_intelligence(prompt: str) -> dict:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(generate_openai_json, prompt, 5200, OPENAI_ANALYSIS_MODEL),
+            timeout=AI_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError as exc:
+        raise AIProviderError(
+            f"OpenAI intelligence request timed out after {AI_TIMEOUT_SECONDS} seconds.",
+            error_type="TimeoutError",
+            status_code=504,
+        ) from exc
+
+
+async def generate_text(prompt: str, max_output_tokens: int, model: str) -> str:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(generate_openai_text, prompt, max_output_tokens, model),
+            timeout=AI_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError as exc:
+        raise AIProviderError(
+            f"OpenAI text request timed out after {AI_TIMEOUT_SECONDS} seconds.",
+            error_type="TimeoutError",
+            status_code=504,
+        ) from exc
+
+
+def generate_openai_text(prompt: str, max_output_tokens: int, model: str) -> str:
+    print(f"[openai:text] model={model} max_output_tokens={max_output_tokens}")
+    try:
+        response = get_openai_client().chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=max_output_tokens,
+        )
+    except OpenAIError as exc:
+        raise_openai_error(exc, model=model, operation="text generation")
+
+    answer = (response.choices[0].message.content or "").strip() if response.choices else ""
+    print(f"[openai:text] model={model} response_chars={len(answer)}")
+    return answer
+
+
+def generate_openai_json(
+    prompt: str,
+    max_output_tokens: int,
+    model: str,
+    timeout_seconds: int | None = None,
+) -> dict:
+    print(
+        f"[openai:json] model={model} max_output_tokens={max_output_tokens} "
+        f"prompt_chars={len(prompt)} timeout_seconds={timeout_seconds or AI_TIMEOUT_SECONDS}"
+    )
+    try:
+        response = get_openai_client(timeout_seconds).chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=max_output_tokens,
+            response_format={"type": "json_object"},
+        )
+    except OpenAIError as exc:
+        raise_openai_error(exc, model=model, operation="JSON generation")
+
+    text = (response.choices[0].message.content or "").strip() if response.choices else ""
+    print(f"[openai:json] model={model} response_chars={len(text)}")
+    if not text:
+        raise AIProviderError(
+            "OpenAI returned an empty JSON response.",
+            error_type="EmptyOpenAIResponse",
+            model=model,
+            status_code=502,
+        )
+
+    try:
+        return parse_json_response(text)
+    except Exception as exc:
+        print(f"[openai:json:parse_error] raw_response={sanitize_log_text(text)}")
+        raise AIProviderError(
+            "OpenAI returned invalid JSON.",
+            error_type="JSONParseError",
+            model=model,
+            status_code=502,
+            raw_response=text,
+        ) from exc
+
+
+def parse_json_response(text: str) -> dict:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+        if not match:
+            raise RuntimeError("AI provider did not return valid JSON.") from exc
+        data = json.loads(match.group(0))
+
+    if not isinstance(data, dict):
+        raise RuntimeError("AI provider intelligence response must be a JSON object.")
+    return data
+
+
+def normalize_intelligence_payload(payload: dict) -> dict:
+    normalized = {
+        "documentType": "Not specified",
+        "confidence": "Not specified",
+        "snapshot": {},
+        "plainEnglishSummary": "Not specified",
+        "keyInformation": {},
+        "timeline": [],
+        "financialSummary": {},
+        "obligations": {"partyA": [], "partyB": []},
+        "keyClauses": [],
+        "riskHighlights": [],
+        "missingInformation": [],
+        "recommendedQuestions": [],
+    }
+
+    for key in normalized:
+        if key in payload:
+            normalized[key] = payload[key]
+
+    if not isinstance(normalized["snapshot"], dict):
+        normalized["snapshot"] = {}
+    if not isinstance(normalized["keyInformation"], dict):
+        normalized["keyInformation"] = {}
+    if not isinstance(normalized["financialSummary"], dict):
+        normalized["financialSummary"] = {}
+    if not isinstance(normalized["obligations"], dict):
+        normalized["obligations"] = {"partyA": [], "partyB": []}
+
+    for key in ("timeline", "keyClauses", "riskHighlights", "missingInformation", "recommendedQuestions"):
+        value = normalized[key]
+        if isinstance(value, str):
+            normalized[key] = [value] if value else []
+        elif not isinstance(value, list):
+            normalized[key] = []
+
+    confidence = normalize_confidence_percentage(
+        normalized.get("confidence") or normalized["snapshot"].get("estimatedAiConfidence")
+    )
+    normalized["confidence"] = confidence
+    normalized["snapshot"]["estimatedAiConfidence"] = confidence
+
+    return normalized
+
+
+def normalize_clauses_payload(payload: dict) -> dict:
+    raw_clauses = payload.get("clauses") if isinstance(payload, dict) else []
+    if not isinstance(raw_clauses, list):
+        raw_clauses = []
+
+    return {
+        "documentType": display_payload_text(payload.get("documentType")) if isinstance(payload, dict) else "Not specified",
+        "clauses": [normalize_clause_item(item) for item in raw_clauses if isinstance(item, dict)],
+    }
+
+
+def normalize_clause_item(item: dict) -> dict:
+    return {
+        "title": display_payload_text(item.get("title")),
+        "category": display_payload_text(item.get("category")),
+        "plainEnglish": display_payload_text(item.get("plainEnglish")),
+        "whyItMatters": display_payload_text(item.get("whyItMatters")),
+        "riskLevel": normalize_risk_level(item.get("riskLevel")),
+        "importantTerms": normalize_payload_list(item.get("importantTerms")),
+        "obligations": normalize_party_action_list(item.get("obligations"), "obligation"),
+        "rights": normalize_party_action_list(item.get("rights"), "right"),
+        "restrictions": normalize_payload_list(item.get("restrictions")),
+        "deadlines": normalize_payload_list(item.get("deadlines")),
+        "financialTerms": normalize_payload_list(item.get("financialTerms")),
+        "sourceReference": display_payload_text(item.get("sourceReference")),
+        "confidence": normalize_confidence_number(item.get("confidence")),
+    }
+
+
+def normalize_risk_analysis_payload(payload: dict) -> dict:
+    raw_risks = payload.get("risks") if isinstance(payload, dict) else []
+    if not isinstance(raw_risks, list):
+        raw_risks = []
+
+    return {
+        "documentType": display_payload_text(payload.get("documentType")) if isinstance(payload, dict) else "Not specified",
+        "overallRisk": normalize_risk_level(payload.get("overallRisk")) if isinstance(payload, dict) else "Low",
+        "summary": display_payload_text(payload.get("summary")) if isinstance(payload, dict) else "Not specified",
+        "risks": [normalize_risk_item(item) for item in raw_risks if isinstance(item, dict)],
+        "missingProtections": normalize_payload_list(payload.get("missingProtections") if isinstance(payload, dict) else []),
+        "unusualTerms": normalize_payload_list(payload.get("unusualTerms") if isinstance(payload, dict) else []),
+        "financialRisks": normalize_payload_list(payload.get("financialRisks") if isinstance(payload, dict) else []),
+        "legalRisks": normalize_payload_list(payload.get("legalRisks") if isinstance(payload, dict) else []),
+        "complianceRisks": normalize_payload_list(payload.get("complianceRisks") if isinstance(payload, dict) else []),
+    }
+
+
+def normalize_risk_item(item: dict) -> dict:
+    return {
+        "title": display_payload_text(item.get("title")),
+        "category": display_payload_text(item.get("category")),
+        "severity": normalize_risk_level(item.get("severity")),
+        "description": display_payload_text(item.get("description")),
+        "whyItMatters": display_payload_text(item.get("whyItMatters")),
+        "recommendation": display_payload_text(item.get("recommendation")),
+        "affectedParty": display_payload_text(item.get("affectedParty")),
+        "sourceReference": display_payload_text(item.get("sourceReference")),
+        "confidence": normalize_confidence_number(item.get("confidence")),
+    }
+
+
+def normalize_compare_payload(payload: dict, document_a, document_b) -> dict:
+    raw_differences = payload.get("differences") if isinstance(payload, dict) else []
+    if not isinstance(raw_differences, list):
+        raw_differences = []
+
+    document_a_payload = payload.get("documentA") if isinstance(payload, dict) and isinstance(payload.get("documentA"), dict) else {}
+    document_b_payload = payload.get("documentB") if isinstance(payload, dict) and isinstance(payload.get("documentB"), dict) else {}
+
+    return {
+        "documentA": normalize_compare_document(document_a, document_a_payload),
+        "documentB": normalize_compare_document(document_b, document_b_payload),
+        "areComparable": normalize_boolean(payload.get("areComparable")) if isinstance(payload, dict) else False,
+        "summary": display_payload_text(payload.get("summary")) if isinstance(payload, dict) else "Not specified",
+        "differences": [normalize_compare_difference(item) for item in raw_differences if isinstance(item, dict)][:8],
+        "financialDifferences": normalize_payload_list(payload.get("financialDifferences") if isinstance(payload, dict) else [])[:8],
+        "obligationDifferences": normalize_payload_list(payload.get("obligationDifferences") if isinstance(payload, dict) else [])[:8],
+        "deadlineDifferences": normalize_payload_list(payload.get("deadlineDifferences") if isinstance(payload, dict) else [])[:8],
+        "riskDifferences": normalize_payload_list(payload.get("riskDifferences") if isinstance(payload, dict) else [])[:8],
+        "recommendedQuestions": normalize_payload_list(payload.get("recommendedQuestions") if isinstance(payload, dict) else [])[:5],
+    }
+
+
+def normalize_compare_document(document, payload: dict) -> dict:
+    return {
+        "id": str(document["id"]),
+        "name": display_payload_text(document["file_name"] or document["title"]),
+        "documentType": display_payload_text(payload.get("documentType")),
+    }
+
+
+def normalize_compare_difference(item: dict) -> dict:
+    return {
+        "title": display_payload_text(item.get("title")),
+        "type": normalize_difference_type(item.get("type")),
+        "category": display_payload_text(item.get("category")),
+        "documentA": display_payload_text(item.get("documentA")),
+        "documentB": display_payload_text(item.get("documentB")),
+        "impact": display_payload_text(item.get("impact")),
+        "riskChange": normalize_risk_change(item.get("riskChange")),
+        "affectedParty": display_payload_text(item.get("affectedParty")),
+        "sourceReference": display_payload_text(item.get("sourceReference")),
+        "confidence": normalize_confidence_number(item.get("confidence")),
+    }
+
+
+def normalize_boolean(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    return normalized in {"true", "yes", "comparable", "1"}
+
+
+def normalize_difference_type(value) -> str:
+    normalized = str(value or "").strip().lower()
+    allowed = {
+        "added": "Added",
+        "removed": "Removed",
+        "changed": "Changed",
+        "same": "Same",
+    }
+    return allowed.get(normalized, "Changed")
+
+
+def normalize_risk_change(value) -> str:
+    normalized = str(value or "").strip().lower()
+    allowed = {
+        "lower": "Lower",
+        "same": "Same",
+        "higher": "Higher",
+        "not applicable": "Not applicable",
+        "n/a": "Not applicable",
+        "na": "Not applicable",
+    }
+    return allowed.get(normalized, "Not applicable")
+
+
+def jsonable(value):
+    if isinstance(value, dict):
+        return {key: jsonable(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [jsonable(item) for item in value]
+    if isinstance(value, (datetime, uuid.UUID)):
+        return str(value)
+    return value
+
+
+def stable_json(value) -> str:
+    return json.dumps(jsonable(value), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def build_input_hash(payload: dict) -> str:
+    return hashlib.sha256(stable_json(payload).encode("utf-8")).hexdigest()
+
+
+def chunk_content_hash(chunks) -> str:
+    parts = [
+        {
+            "index": row["chunk_index"],
+            "text": row["chunk_text"],
+        }
+        for row in chunks
+    ]
+    return build_input_hash({"chunks": parts})
+
+
+def decode_ai_output(value) -> dict:
+    if isinstance(value, str):
+        return json.loads(value)
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def display_payload_text(value) -> str:
+    if value is None:
+        return "Not specified"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=True)
+    normalized = str(value).strip()
+    return normalized or "Not specified"
+
+
+def normalize_risk_level(value) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"low", "medium", "high"}:
+        return normalized.title()
+    return "Low"
+
+
+def normalize_payload_list(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [
+            display_payload_text(item)
+            for item in value
+            if has_payload_value(item) and not is_payload_not_applicable(item)
+        ]
+    if has_payload_value(value) and not is_payload_not_applicable(value):
+        return [display_payload_text(value)]
+    return []
+
+
+def normalize_party_action_list(value, action_key: str) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+
+    normalized = []
+    for item in value:
+        if isinstance(item, dict):
+            party = display_payload_text(item.get("party"))
+            action = display_payload_text(item.get(action_key))
+        else:
+            party = "Not specified"
+            action = display_payload_text(item)
+        if action and not is_payload_not_applicable(action):
+            normalized.append({"party": party, action_key: action})
+    return normalized
+
+
+def normalize_confidence_number(value) -> int:
+    if isinstance(value, (int, float)):
+        number = value * 100 if 0 <= value <= 1 else value
+        return round(max(0, min(100, number)))
+    match = re.search(r"(\d+(?:\.\d+)?)", str(value or ""))
+    if not match:
+        return 0
+    number = float(match.group(1))
+    if number <= 1 and "%" not in str(value):
+        number *= 100
+    return round(max(0, min(100, number)))
+
+
+def has_payload_value(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, list):
+        return any(has_payload_value(item) for item in value)
+    if isinstance(value, dict):
+        return any(has_payload_value(item) for item in value.values())
+    return bool(str(value).strip())
+
+
+def is_payload_not_applicable(value) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized in {"not applicable", "not specified", "none", "n/a"}
+
+
+def normalize_confidence_percentage(value) -> str:
+    if value is None:
+        return "Not specified"
+
+    if isinstance(value, (int, float)):
+        percentage = value * 100 if 0 <= value <= 1 else value
+        return f"{round(max(0, min(100, percentage)))}%"
+
+    normalized = str(value).strip().lower()
+    if not normalized:
+        return "Not specified"
+
+    confidence_map = {
+        "high": "90%",
+        "medium": "70%",
+        "low": "45%",
+    }
+    if normalized in confidence_map:
+        return confidence_map[normalized]
+
+    match = re.search(r"(\d+(?:\.\d+)?)", normalized)
+    if match:
+        number = float(match.group(1))
+        if number <= 1 and "%" not in normalized:
+            number *= 100
+        return f"{round(max(0, min(100, number)))}%"
+
+    return "Not specified"
 
 
 def normalize_embedding(embedding: list[float]) -> list[float]:
@@ -364,6 +1052,501 @@ Document chunks:
 
 Question:
 {question}
+""".strip()
+
+
+def build_document_summary_prompt(chunks) -> str:
+    chunk_blocks = "\n\n".join(
+        f"[Chunk {row['chunk_index']}]\n{row['chunk_text']}"
+        for row in chunks
+    )
+    return f"""
+You are a legal document analyst.
+Analyze the uploaded English legal document.
+First identify the document type.
+Then create a concise executive summary that adapts to the document type.
+
+Return only Markdown.
+
+Use these headings exactly as Markdown headings:
+## Executive Summary
+## Document Type
+## Parties Involved
+## Purpose of the Document
+## Key Terms
+## Important Dates
+## Payment / Financial Terms
+## Obligations of Each Party
+## Rights of Each Party
+## Termination / Expiry
+## Confidentiality / Restrictions
+## Dispute Resolution / Governing Law
+## Risks or Unusual Terms
+## Missing or Not Specified Information
+
+Rules:
+- Use only information found in the document.
+- Do not invent missing details.
+- If a section does not apply, write "Not applicable."
+- If information is not present, write "Not specified."
+- Keep language simple and clear.
+- Do not assume this is a rental agreement.
+- Adapt the analysis to NDAs, contracts, leases, employment agreements, service agreements, and other legal documents.
+
+Document chunks in order:
+{chunk_blocks}
+""".strip()
+
+
+def build_document_intelligence_prompt(chunks, page_count: int | None) -> str:
+    chunk_blocks = "\n\n".join(
+        f"[Chunk {row['chunk_index']}]\n{row['chunk_text']}"
+        for row in chunks
+    )
+    known_pages = page_count if page_count else "Not specified"
+    return f"""
+You are a legal document analyst for Juris.
+
+Analyze the uploaded English legal document and produce structured legal intelligence.
+Your goal is to answer: "What should I care about in this document?"
+
+Important:
+- First identify the document type. Never assume it is a rental agreement.
+- Adapt automatically to rental agreements, NDAs, employment agreements, service agreements, vendor contracts, partnership agreements, loan agreements, policies, terms and conditions, and any other English legal document.
+- Use only information supported by the document chunks.
+- Never hallucinate.
+- Never invent missing details.
+- If a value is unavailable, use "Not specified".
+- Return only valid JSON. Do not include Markdown, explanations, or code fences.
+- Keep text concise and dashboard-friendly.
+
+Known metadata:
+- Number of pages: {known_pages}
+
+Return this exact top-level JSON shape:
+{{
+  "documentType": "",
+  "confidence": "92%",
+  "snapshot": {{}},
+  "plainEnglishSummary": "",
+  "keyInformation": {{}},
+  "timeline": [],
+  "financialSummary": {{}},
+  "obligations": {{
+    "partyA": [],
+    "partyB": []
+  }},
+  "keyClauses": [],
+  "riskHighlights": [],
+  "missingInformation": [],
+  "recommendedQuestions": []
+}}
+
+Section requirements:
+
+1. Executive Snapshot
+Set "snapshot" with:
+- documentType
+- estimatedAiConfidence as a numeric percentage string only, such as "92%". Do not use High, Medium, or Low.
+- numberOfParties
+- numberOfPages
+- numberOfMajorClauses
+- estimatedRiskCount
+
+2. Plain-English Summary
+Set "plainEnglishSummary" to under 120 words.
+Answer: "If I only have 30 seconds, what should I know?"
+
+3. Key Information
+Set "keyInformation" to an object.
+Extract only fields supported by the document, such as:
+- parties
+- propertyOrSubject
+- effectiveDate
+- expiration
+- governingLaw
+- jurisdiction
+- noticePeriod
+Do not include absent fields unless the document explicitly expects the field and leaves it blank.
+
+4. Timeline
+Set "timeline" to chronological items.
+Each item should be an object with "label", "date", and "detail".
+Examples: Agreement Starts, Payment Due, Renewal, Termination, Expiry.
+If unavailable, return [].
+
+5. Financial Summary
+Set "financialSummary" to an object containing supported financial terms, such as:
+- payments
+- deposits
+- salary
+- fees
+- penalties
+- interest
+- refunds
+Adapt to the document type. If no financial terms are present, use {{ "status": "Not specified" }}.
+
+6. Obligations Matrix
+Set "obligations" to an object split by parties or roles.
+Use actual party names or roles as keys when they are clear, such as Landlord, Tenant, Company, Employee, Client, Vendor, Partner A, Partner B.
+If parties are unclear, use "partyA" and "partyB".
+Each party value must be an array of short obligation strings.
+
+7. Key Clauses
+Set "keyClauses" to an array of clause titles only.
+Examples: Termination, Confidentiality, Liability, Indemnity, Force Majeure, Payment, Renewal, Arbitration, IP Ownership, Non-compete.
+Do not explain these clauses here.
+
+8. Risk Highlights
+Set "riskHighlights" to an array of important legal risks.
+Examples: Automatic Renewal, High Penalty, Unlimited Liability, One-sided Termination, Broad Confidentiality, Missing Payment Terms, Missing Termination, Missing Governing Law.
+If no major risks are detected, return ["No major risks detected."].
+
+9. Missing Information
+Set "missingInformation" to an array of important expected legal information that appears absent.
+Examples: Missing signatures, Missing expiry, Missing governing law, Missing witnesses, Missing notice period.
+If nothing important appears missing, return [].
+
+10. Recommended Questions
+Set "recommendedQuestions" to exactly 5 useful questions for Chat.
+Examples:
+- What are my payment obligations?
+- Can this agreement be terminated early?
+- Who owns the intellectual property?
+- What happens if either party breaches?
+- Are there any unusual clauses?
+
+Document chunks in order:
+{chunk_blocks}
+""".strip()
+
+
+def build_document_clauses_prompt(chunks) -> str:
+    chunk_blocks = "\n\n".join(
+        f"[Chunk {row['chunk_index']}]\n{row['chunk_text']}"
+        for row in chunks
+    )
+    return f"""
+You are a legal document analyst for Juris.
+
+Analyze the uploaded English legal document and extract the important clauses.
+First identify the document type. Never assume it is a rental agreement.
+Adapt clause extraction to the actual document type, including rental agreements, NDAs, employment agreements, service agreements, vendor contracts, partnership agreements, loan agreements, terms and conditions, privacy policies, and any other English legal document.
+
+Important rules:
+- Use only information supported by the document chunks.
+- Do not invent clauses.
+- If a clause is not found, do not include it.
+- Do not use landlord/tenant language unless the document is actually a lease or rental agreement.
+- If a field is not applicable, use an empty array or "Not applicable".
+- Explain legal language in simple English.
+- Highlight why each clause matters.
+- Assign riskLevel based on legal/business impact, not fear.
+- Include sourceReference using chunk numbers where possible, such as "Chunk 3" or "Chunks 2, 4".
+- Return only valid JSON. Do not include Markdown, explanations, or code fences.
+
+Return this exact top-level JSON shape:
+{{
+  "documentType": "",
+  "clauses": [
+    {{
+      "title": "",
+      "category": "",
+      "plainEnglish": "",
+      "whyItMatters": "",
+      "riskLevel": "Low",
+      "importantTerms": [],
+      "obligations": [
+        {{
+          "party": "",
+          "obligation": ""
+        }}
+      ],
+      "rights": [
+        {{
+          "party": "",
+          "right": ""
+        }}
+      ],
+      "restrictions": [],
+      "deadlines": [],
+      "financialTerms": [],
+      "sourceReference": "",
+      "confidence": 0
+    }}
+  ]
+}}
+
+Field guidance:
+- "title": concise clause title found or strongly supported by headings/text.
+- "category": legal category, such as Termination, Confidentiality, Payment, Liability, IP Ownership, Privacy, Dispute Resolution, Employment, Data Use, Renewal, Breach, Indemnity, Governing Law, or another document-appropriate category.
+- "plainEnglish": what the clause means in simple English.
+- "whyItMatters": why a reader should care about it.
+- "riskLevel": exactly one of "Low", "Medium", or "High".
+- "importantTerms": key defined terms, thresholds, conditions, exceptions, standards, or requirements.
+- "obligations": party-specific duties only.
+- "rights": party-specific rights only.
+- "restrictions": prohibitions or limits.
+- "deadlines": dates, notice periods, renewal windows, payment dates, response periods, or expiry periods.
+- "financialTerms": payments, fees, penalties, deposits, salary, interest, refunds, reimbursements, or other money terms.
+- "sourceReference": chunk reference that supports the clause, such as "Chunk 2" or "Chunks 1, 3".
+- "confidence": integer from 0 to 100 based on how clearly the clause is supported by the chunks.
+
+Document chunks in order:
+{chunk_blocks}
+""".strip()
+
+
+def build_document_risk_analysis_prompt(chunks) -> str:
+    chunk_blocks = "\n\n".join(
+        f"[Chunk {row['chunk_index']}]\n{row['chunk_text']}"
+        for row in chunks
+    )
+    return f"""
+You are a legal document risk analyst for Juris.
+
+Analyze the uploaded English legal document for legal, financial, operational, and compliance risks.
+First identify the document type. Never assume it is a rental agreement.
+Adapt the risk analysis to the actual document type, including rental agreements, employment agreements, NDAs, loan agreements, vendor contracts, service agreements, partnership agreements, purchase agreements, terms and conditions, privacy policies, and any other English legal document.
+
+Important rules:
+- Use only information supported by the document chunks.
+- Never invent risks.
+- Do not report generic risks unless the document text supports them.
+- If no risks are found, set "risks" to [] and explain that in "summary".
+- Explain every risk in plain English.
+- Include a practical recommendation for every risk.
+- Assign severity based on legal impact, financial exposure, operational burden, compliance exposure, or imbalance between parties.
+- Include sourceReference using chunk numbers where possible, such as "Chunk 3" or "Chunks 2, 4".
+- Do not assume document type.
+- Return only valid JSON. Do not include Markdown, explanations, or code fences.
+
+Return this exact top-level JSON shape:
+{{
+  "documentType": "",
+  "overallRisk": "Low",
+  "summary": "",
+  "risks": [
+    {{
+      "title": "",
+      "category": "",
+      "severity": "Low",
+      "description": "",
+      "whyItMatters": "",
+      "recommendation": "",
+      "affectedParty": "",
+      "sourceReference": "",
+      "confidence": 0
+    }}
+  ],
+  "missingProtections": [],
+  "unusualTerms": [],
+  "financialRisks": [],
+  "legalRisks": [],
+  "complianceRisks": []
+}}
+
+Field guidance:
+- "documentType": the best supported document type from the text.
+- "overallRisk": exactly one of "Low", "Medium", or "High".
+- "summary": short plain-English overview of the document's risk posture.
+- "risks": concrete risk items supported by the chunks. If no risks are found, return [].
+- "title": concise risk name.
+- "category": risk category, such as Legal, Financial, Operational, Compliance, Privacy, Employment, IP, Liability, Termination, Payment, Renewal, Confidentiality, Data Use, Dispute Resolution, or another document-appropriate category.
+- "severity": exactly one of "Low", "Medium", or "High".
+- "description": what the risky term or missing protection says in simple English.
+- "whyItMatters": why this could affect the user or a party.
+- "recommendation": practical review or negotiation step.
+- "affectedParty": the party, role, or user most affected. Use "Not specified" if unclear.
+- "sourceReference": chunk reference that supports the risk, such as "Chunk 2" or "Chunks 1, 3".
+- "confidence": integer from 0 to 100 based on how clearly the risk is supported by the chunks.
+- "missingProtections": important protective terms commonly expected for this document type that appear absent. Only include absent protections when absence is supported by the document context.
+- "unusualTerms": unusual or one-sided supported terms.
+- "financialRisks": payment, fee, deposit, penalty, interest, refund, salary, damages, or cost risks.
+- "legalRisks": liability, termination, governing law, dispute, indemnity, IP, confidentiality, employment, enforceability, or rights risks.
+- "complianceRisks": privacy, data protection, regulatory, reporting, consent, notice, policy, workplace, or statutory compliance risks.
+
+Document chunks in order:
+{chunk_blocks}
+""".strip()
+
+
+COMPARE_IMPORTANT_TERMS = (
+    "termination",
+    "terminate",
+    "expiry",
+    "expiration",
+    "renewal",
+    "payment",
+    "fee",
+    "fees",
+    "deposit",
+    "penalty",
+    "interest",
+    "salary",
+    "refund",
+    "liability",
+    "indemn",
+    "confidential",
+    "privacy",
+    "data",
+    "intellectual property",
+    "ip ownership",
+    "warranty",
+    "breach",
+    "default",
+    "notice",
+    "governing law",
+    "jurisdiction",
+    "dispute",
+    "arbitration",
+    "obligation",
+    "responsibility",
+    "right",
+    "restriction",
+    "non-compete",
+    "non-solicit",
+    "assignment",
+    "force majeure",
+    "compliance",
+    "consent",
+)
+
+
+def select_compare_chunks(
+    chunks,
+    *,
+    char_budget: int = COMPARE_CONTEXT_CHAR_BUDGET,
+    max_chunks: int = COMPARE_MAX_CHUNKS_PER_DOCUMENT,
+) -> list:
+    if not chunks:
+        return []
+
+    scored_chunks = []
+    for position, row in enumerate(chunks):
+        text = row["chunk_text"] or ""
+        score = compare_chunk_score(text)
+        if position == 0:
+            score += 8
+        if position == len(chunks) - 1:
+            score += 3
+        scored_chunks.append((score, position, row))
+
+    selected = []
+    total_chars = 0
+    for _, _, row in sorted(scored_chunks, key=lambda item: (-item[0], item[1])):
+        text_length = len(row["chunk_text"] or "")
+        if len(selected) >= max_chunks:
+            break
+        if selected and total_chars + text_length > char_budget:
+            continue
+        selected.append(row)
+        total_chars += text_length
+
+    return sorted(selected, key=lambda row: row["chunk_index"])
+
+
+def compare_chunk_score(text: str) -> int:
+    normalized = text.lower()
+    return sum(normalized.count(term) for term in COMPARE_IMPORTANT_TERMS)
+
+
+def build_document_compare_prompt(document_a, chunks_a, document_b, chunks_b) -> str:
+    chunk_blocks_a = "\n\n".join(
+        f"[Document A / Chunk {row['chunk_index']}]\n{row['chunk_text']}"
+        for row in chunks_a
+    )
+    chunk_blocks_b = "\n\n".join(
+        f"[Document B / Chunk {row['chunk_index']}]\n{row['chunk_text']}"
+        for row in chunks_b
+    )
+    return f"""
+You are a legal document comparison analyst for Juris.
+
+Compare two uploaded English legal documents. First identify each document type.
+Then decide whether they appear comparable as the same general type or same legal/business purpose.
+Examples of comparable pairs: two rental agreements, two NDAs, two employment agreements, two service agreements, two vendor contracts, two privacy policies, two versions of a purchase agreement, or two documents with substantially similar legal purpose.
+
+Important rules:
+- Use only the provided document chunks.
+- Do not invent differences.
+- Keep the comparison brief and easy to scan.
+- Return at most 8 differences.
+- Keep every difference concise: one short sentence per comparison field when possible.
+- Focus on meaningful legal, financial, obligation, deadline, risk, and clause differences.
+- If a difference is not supported by the chunks, do not include it.
+- If the documents are not comparable, set "areComparable" to false, explain why in "summary", and keep "differences" empty unless there is a directly supported high-level mismatch.
+- Include sourceReference using document and chunk numbers where possible, such as "A Chunk 2; B Chunk 4".
+- Return only valid JSON. Do not include Markdown, explanations, or code fences.
+
+Document A metadata:
+- id: {document_a["id"]}
+- name: {document_a["file_name"]}
+
+Document B metadata:
+- id: {document_b["id"]}
+- name: {document_b["file_name"]}
+
+Return this exact top-level JSON shape:
+{{
+  "documentA": {{
+    "id": "",
+    "name": "",
+    "documentType": ""
+  }},
+  "documentB": {{
+    "id": "",
+    "name": "",
+    "documentType": ""
+  }},
+  "areComparable": true,
+  "summary": "",
+  "differences": [
+    {{
+      "title": "",
+      "type": "Changed",
+      "category": "",
+      "documentA": "",
+      "documentB": "",
+      "impact": "",
+      "riskChange": "Not applicable",
+      "affectedParty": "",
+      "sourceReference": "",
+      "confidence": 0
+    }}
+  ],
+  "financialDifferences": [],
+  "obligationDifferences": [],
+  "deadlineDifferences": [],
+  "riskDifferences": [],
+  "recommendedQuestions": []
+}}
+
+Field guidance:
+- "documentA.documentType" and "documentB.documentType": best supported type for each document.
+- "areComparable": true only when the documents appear to be the same general document type or comparable legal/business purpose.
+- "summary": under 120 words. Explain the main takeaway and whether the documents are comparable.
+- "differences": the most important supported differences. Return no more than 8 items. Keep each item concise.
+- "type": exactly one of "Added", "Removed", "Changed", or "Same".
+- "category": legal category, such as Payment, Termination, Confidentiality, Liability, Renewal, Governing Law, Obligations, Rights, Deadlines, Risk, Privacy, IP, Employment, Data Use, or another document-appropriate category.
+- "documentA": what Document A says or "Not specified" if the comparable term is absent from Document A.
+- "documentB": what Document B says or "Not specified" if the comparable term is absent from Document B.
+- "impact": why the difference matters in plain English.
+- "riskChange": exactly one of "Lower", "Same", "Higher", or "Not applicable".
+- "affectedParty": party or role most affected, or "Not specified" if unclear.
+- "sourceReference": document/chunk references supporting the difference.
+- "confidence": integer from 0 to 100 based on how clearly the difference is supported.
+- "financialDifferences": concise supported money/payment/fee/deposit/penalty differences.
+- "obligationDifferences": concise supported duty/responsibility differences.
+- "deadlineDifferences": concise supported date/notice/renewal/expiry/timeline differences.
+- "riskDifferences": concise supported risk or protection differences.
+- "recommendedQuestions": exactly 5 short suggested follow-up questions for Chat.
+
+Document A chunks:
+{chunk_blocks_a}
+
+Document B chunks:
+{chunk_blocks_b}
 """.strip()
 
 
@@ -447,12 +1630,22 @@ async def save_document_chunks(
                 await connection.executemany(
                     """
                     insert into document_chunks (
-                      document_id, user_id, chunk_index, chunk_text, embedding, created_at
+                      document_id, user_id, chunk_index, chunk_text, embedding,
+                      embedding_provider, embedding_model, embedding_dimensions, created_at
                     )
-                    values ($1, $2, $3, $4, $5::vector, now())
+                    values ($1, $2, $3, $4, $5::vector, $6, $7, $8, now())
                     """,
                     [
-                        (document_uuid, user_uuid, index, chunk, vector_literal(embeddings[index]))
+                        (
+                            document_uuid,
+                            user_uuid,
+                            index,
+                            chunk,
+                            vector_literal(embeddings[index]),
+                            "openai",
+                            OPENAI_EMBED_MODEL,
+                            EMBEDDING_DIMENSIONS,
+                        )
                         for index, chunk in enumerate(chunks)
                     ],
                 )
@@ -488,25 +1681,233 @@ async def get_owned_document(pool: asyncpg.Pool, document_id: str, user_id: str)
 async def search_document_chunks(
     pool: asyncpg.Pool,
     document_id: str,
-    user_id: str,
     question_embedding: list[float],
-    limit: int = 5,
+    limit: int = 3,
 ):
+    return await pool.fetch(
+        """
+        select
+          id,
+          chunk_index,
+          chunk_text,
+          embedding::vector(1536) <=> $2::vector(1536) as distance
+        from document_chunks
+        where document_id = $1
+          and embedding is not null
+          and embedding_provider = 'openai'
+          and embedding_model = 'text-embedding-3-small'
+          and embedding_dimensions = 1536
+        order by distance asc
+        limit $3
+        """,
+        uuid.UUID(document_id),
+        vector_literal(question_embedding),
+        limit,
+    )
+
+
+async def get_fallback_document_chunks(pool: asyncpg.Pool, document_id: str, limit: int = 3):
+    return await pool.fetch(
+        """
+        select
+          id,
+          chunk_index,
+          chunk_text,
+          null::float8 as distance
+        from document_chunks
+        where document_id = $1
+          and embedding is not null
+          and embedding_provider = 'openai'
+          and embedding_model = 'text-embedding-3-small'
+          and embedding_dimensions = 1536
+        order by chunk_index asc
+        limit $2
+        """,
+        uuid.UUID(document_id),
+        limit,
+    )
+
+
+async def count_retrievable_document_chunks(pool: asyncpg.Pool, document_id: str) -> int:
+    return await pool.fetchval(
+        """
+        select count(*)
+        from document_chunks
+        where document_id = $1
+          and embedding is not null
+          and embedding_provider = 'openai'
+          and embedding_model = 'text-embedding-3-small'
+          and embedding_dimensions = 1536
+        """,
+        uuid.UUID(document_id),
+    )
+
+
+async def get_document_chunks_in_order(pool: asyncpg.Pool, document_id: str, user_id: str):
     return await pool.fetch(
         """
         select chunk_index, chunk_text
         from document_chunks
         where document_id = $1
           and user_id = $2
-          and embedding is not null
-        order by embedding <=> $3::vector
-        limit $4
+        order by chunk_index asc
         """,
         uuid.UUID(document_id),
         uuid.UUID(user_id),
-        vector_literal(question_embedding),
-        limit,
     )
+
+
+async def get_document_page_count(pool: asyncpg.Pool, document_id: str, user_id: str) -> int | None:
+    row = await pool.fetchrow(
+        """
+        select page_count
+        from document_text
+        where document_id = $1
+          and user_id = $2
+        """,
+        uuid.UUID(document_id),
+        uuid.UUID(user_id),
+    )
+    return row["page_count"] if row else None
+
+
+async def get_document_version_stamp(pool: asyncpg.Pool, document_id: str, user_id: str):
+    row = await pool.fetchrow(
+        """
+        select
+          d.id,
+          d.file_key,
+          d.file_size,
+          d.mime_type,
+          d.status,
+          d.created_at,
+          coalesce(dt.updated_at, d.created_at) as updated_at
+        from documents d
+        left join document_text dt
+          on dt.document_id = d.id and dt.user_id = d.user_id
+        where d.id = $1
+          and d.user_id = $2
+        """,
+        uuid.UUID(document_id),
+        uuid.UUID(user_id),
+    )
+    if not row:
+        return {}
+    return {
+        "id": str(row["id"]),
+        "fileKey": row["file_key"],
+        "fileSize": row["file_size"],
+        "mimeType": row["mime_type"],
+        "status": row["status"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+async def document_feature_input_hash(
+    pool: asyncpg.Pool,
+    *,
+    document_id: str,
+    user_id: str,
+    feature: str,
+    chunks,
+) -> str:
+    version = await get_document_version_stamp(pool, document_id, user_id)
+    return build_input_hash(
+        {
+            "feature": feature,
+            "document": version,
+            "chunkHash": chunk_content_hash(chunks),
+        }
+    )
+
+
+async def compare_feature_input_hash(
+    pool: asyncpg.Pool,
+    *,
+    document_a_id: str,
+    document_b_id: str,
+    user_id: str,
+    chunks_a,
+    chunks_b,
+) -> str:
+    version_a = await get_document_version_stamp(pool, document_a_id, user_id)
+    version_b = await get_document_version_stamp(pool, document_b_id, user_id)
+    return build_input_hash(
+        {
+            "feature": "compare_documents",
+            "documentA": {
+                "id": document_a_id,
+                "updatedAt": version_a.get("updatedAt"),
+                "chunkHash": chunk_content_hash(chunks_a),
+            },
+            "documentB": {
+                "id": document_b_id,
+                "updatedAt": version_b.get("updatedAt"),
+                "chunkHash": chunk_content_hash(chunks_b),
+            },
+        }
+    )
+
+
+async def get_cached_ai_output(
+    pool: asyncpg.Pool,
+    *,
+    document_id: str,
+    user_id: str,
+    feature: str,
+    input_hash: str,
+) -> dict | None:
+    row = await pool.fetchrow(
+        """
+        select output_json
+        from ai_outputs
+        where document_id = $1
+          and user_id = $2
+          and feature = $3
+          and input_hash = $4
+        """,
+        uuid.UUID(document_id),
+        uuid.UUID(user_id),
+        feature,
+        input_hash,
+    )
+    if not row:
+        return None
+    return decode_ai_output(row["output_json"])
+
+
+async def save_ai_output(
+    pool: asyncpg.Pool,
+    *,
+    document_id: str,
+    user_id: str,
+    feature: str,
+    input_hash: str,
+    output_json: dict,
+):
+    await pool.execute(
+        """
+        insert into ai_outputs (
+          document_id, user_id, feature, input_hash, output_json, created_at, updated_at
+        )
+        values ($1, $2, $3, $4, $5::jsonb, now(), now())
+        on conflict (document_id, feature, input_hash) do update set
+          output_json = excluded.output_json,
+          updated_at = now()
+        """,
+        uuid.UUID(document_id),
+        uuid.UUID(user_id),
+        feature,
+        input_hash,
+        stable_json(output_json),
+    )
+
+
+def with_cached_flag(output: dict, cached: bool) -> dict:
+    normalized = dict(output)
+    normalized["cached"] = cached
+    return normalized
 
 
 @app.post("/api/documents/upload", response_model=DocumentRecord)
@@ -634,6 +2035,7 @@ async def ask_document(
     user_id: Annotated[str, Depends(current_user_id)],
     pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
 ):
+    print(f"[rag:ask:start] document_id={document_id} user_id={user_id}")
     question = request.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question is required.")
@@ -643,18 +2045,45 @@ async def ask_document(
         raise HTTPException(status_code=404, detail="Document not found.")
 
     question_embedding = (await generate_embeddings([question], task_type="RETRIEVAL_QUERY"))[0]
+    print(
+        f"[rag:ask:embedding] document_id={document_id} "
+        f"question_embedding_dimensions={len(question_embedding)}"
+    )
+    retrievable_chunk_count = await count_retrievable_document_chunks(pool, document_id)
+    print(
+        f"[rag:ask:chunks_before_vector_search] document_id={document_id} "
+        f"chunk_count={retrievable_chunk_count}"
+    )
     chunks = await search_document_chunks(
         pool=pool,
         document_id=document_id,
-        user_id=user_id,
         question_embedding=question_embedding,
-        limit=5,
+        limit=3,
+    )
+    print(
+        f"[rag:ask:chunks_after_vector_search] document_id={document_id} "
+        f"chunk_count={len(chunks)}"
+    )
+    print(
+        f"[rag:ask:vector_results] document_id={document_id} "
+        f"results={[{'chunk_index': row['chunk_index'], 'distance': row['distance']} for row in chunks]}"
     )
 
+    if retrievable_chunk_count > 0 and not chunks:
+        print(
+            f"[rag:ask:fallback] document_id={document_id} "
+            "vector_search_returned_zero=true fallback=chunk_index"
+        )
+        chunks = await get_fallback_document_chunks(pool, document_id, limit=3)
+        print(
+            f"[rag:ask:fallback_results] document_id={document_id} "
+            f"results={[{'chunk_index': row['chunk_index'], 'distance': row['distance']} for row in chunks]}"
+        )
+
     if not chunks:
-        return AskDocumentResponse(
-            answer="I could not find that information in this document.",
-            sources=[],
+        raise HTTPException(
+            status_code=404,
+            detail="No matching document chunks found for this document.",
         )
 
     prompt = build_document_answer_prompt(question, chunks)
@@ -669,6 +2098,509 @@ async def ask_document(
             for row in chunks
         ],
     )
+
+
+@app.post("/api/documents/{document_id}/summary")
+async def summarize_document(
+    request: Request,
+    document_id: str,
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    req_id = request.headers.get("x-request-id") or request_id()
+    print(
+        f"[ai:summary:start] request_id={req_id} document_id={document_id} "
+        f"user_id={user_id} ai_provider=openai model={OPENAI_ANALYSIS_MODEL} "
+        f"timeout_seconds={AI_TIMEOUT_SECONDS}"
+    )
+    try:
+        document = await get_owned_document(pool, document_id, user_id)
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found.")
+
+        chunks = await get_document_chunks_in_order(pool, document_id, user_id)
+        print(f"[ai:summary:chunks] request_id={req_id} chunk_count={len(chunks)}")
+        if not chunks:
+            raise HTTPException(
+                status_code=400,
+                detail="Document has no processed text chunks available for summary.",
+            )
+
+        feature = "executive_summary"
+        input_hash = await document_feature_input_hash(
+            pool,
+            document_id=document_id,
+            user_id=user_id,
+            feature=feature,
+            chunks=chunks,
+        )
+        cached_output = await get_cached_ai_output(
+            pool,
+            document_id=document_id,
+            user_id=user_id,
+            feature=feature,
+            input_hash=input_hash,
+        )
+        if cached_output is not None:
+            print(f"[ai:summary:cache_hit] request_id={req_id} input_hash={input_hash}")
+            return success_envelope(with_cached_flag(cached_output, True), req_id)
+
+        prompt = build_document_summary_prompt(chunks)
+        summary = await generate_summary(prompt)
+        if not summary:
+            raise AIProviderError(
+                "AI provider returned an empty executive summary.",
+                error_type="EmptyAIResponse",
+                status_code=502,
+            )
+
+        output = {"summary": summary}
+        await save_ai_output(
+            pool,
+            document_id=document_id,
+            user_id=user_id,
+            feature=feature,
+            input_hash=input_hash,
+            output_json=output,
+        )
+        print(f"[ai:summary:success] request_id={req_id} response_chars={len(summary)}")
+        return success_envelope(with_cached_flag(output, False), req_id)
+    except HTTPException as exc:
+        return error_envelope_response(
+            message=str(exc.detail),
+            request_id_value=req_id,
+            status_code_value=exc.status_code,
+            error_type="HTTPException",
+        )
+    except AIProviderError as exc:
+        log_exception("ai_summary", exc, req_id, provider="openai", model=exc.model, raw_response=sanitize_log_text(exc.raw_response))
+        return error_envelope_response(
+            message=str(exc),
+            request_id_value=req_id,
+            status_code_value=exc.status_code,
+            error_type=exc.error_type,
+            details={
+                "provider": "openai",
+                "model": exc.model,
+                "timeoutSeconds": AI_TIMEOUT_SECONDS,
+                "rawResponse": sanitize_log_text(exc.raw_response),
+            },
+        )
+    except Exception as exc:
+        log_exception("summary_endpoint", exc, req_id)
+        return error_envelope_response(
+            message=str(exc),
+            request_id_value=req_id,
+            status_code_value=500,
+            error_type=exc.__class__.__name__,
+        )
+
+
+@app.post("/api/documents/{document_id}/intelligence")
+async def document_intelligence(
+    request: Request,
+    document_id: str,
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    req_id = request.headers.get("x-request-id") or request_id()
+    print(
+        f"[ai:intelligence:start] request_id={req_id} document_id={document_id} "
+        f"user_id={user_id} ai_provider=openai model={OPENAI_ANALYSIS_MODEL} "
+        f"timeout_seconds={AI_TIMEOUT_SECONDS}"
+    )
+    try:
+        document = await get_owned_document(pool, document_id, user_id)
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found.")
+
+        chunks = await get_document_chunks_in_order(pool, document_id, user_id)
+        print(f"[ai:intelligence:chunks] request_id={req_id} chunk_count={len(chunks)}")
+        if not chunks:
+            raise HTTPException(
+                status_code=400,
+                detail="Document has no processed text chunks available for intelligence.",
+            )
+
+        feature = "document_intelligence"
+        input_hash = await document_feature_input_hash(
+            pool,
+            document_id=document_id,
+            user_id=user_id,
+            feature=feature,
+            chunks=chunks,
+        )
+        cached_output = await get_cached_ai_output(
+            pool,
+            document_id=document_id,
+            user_id=user_id,
+            feature=feature,
+            input_hash=input_hash,
+        )
+        if cached_output is not None:
+            print(f"[ai:intelligence:cache_hit] request_id={req_id} input_hash={input_hash}")
+            return success_envelope(with_cached_flag(cached_output, True), req_id)
+
+        page_count = await get_document_page_count(pool, document_id, user_id)
+        prompt = build_document_intelligence_prompt(chunks, page_count)
+        intelligence = await generate_intelligence(prompt)
+        normalized = normalize_intelligence_payload(intelligence)
+        await save_ai_output(
+            pool,
+            document_id=document_id,
+            user_id=user_id,
+            feature=feature,
+            input_hash=input_hash,
+            output_json=normalized,
+        )
+        print(f"[ai:intelligence:success] request_id={req_id} keys={list(normalized.keys())}")
+        return success_envelope(with_cached_flag(normalized, False), req_id)
+    except HTTPException as exc:
+        return error_envelope_response(
+            message=str(exc.detail),
+            request_id_value=req_id,
+            status_code_value=exc.status_code,
+            error_type="HTTPException",
+        )
+    except AIProviderError as exc:
+        log_exception("ai_intelligence", exc, req_id, provider="openai", model=exc.model, raw_response=sanitize_log_text(exc.raw_response))
+        return error_envelope_response(
+            message=str(exc),
+            request_id_value=req_id,
+            status_code_value=exc.status_code,
+            error_type=exc.error_type,
+            details=ai_error_details,
+        )
+    except Exception as exc:
+        log_exception("intelligence_endpoint", exc, req_id)
+        return error_envelope_response(
+            message=str(exc),
+            request_id_value=req_id,
+            status_code_value=500,
+            error_type=exc.__class__.__name__,
+        )
+
+
+@app.post("/api/documents/{document_id}/clauses")
+async def document_clauses(
+    request: Request,
+    document_id: str,
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    req_id = request.headers.get("x-request-id") or request_id()
+    print(
+        f"[ai:clauses:start] request_id={req_id} document_id={document_id} "
+        f"user_id={user_id} ai_provider=openai model={OPENAI_ANALYSIS_MODEL} "
+        f"timeout_seconds={AI_TIMEOUT_SECONDS}"
+    )
+    try:
+        document = await get_owned_document(pool, document_id, user_id)
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found.")
+
+        chunks = await get_document_chunks_in_order(pool, document_id, user_id)
+        print(f"[ai:clauses:chunks] request_id={req_id} chunk_count={len(chunks)}")
+        if not chunks:
+            raise HTTPException(
+                status_code=400,
+                detail="Document has no processed text chunks available for clause intelligence.",
+            )
+
+        feature = "clause_intelligence"
+        input_hash = await document_feature_input_hash(
+            pool,
+            document_id=document_id,
+            user_id=user_id,
+            feature=feature,
+            chunks=chunks,
+        )
+        cached_output = await get_cached_ai_output(
+            pool,
+            document_id=document_id,
+            user_id=user_id,
+            feature=feature,
+            input_hash=input_hash,
+        )
+        if cached_output is not None:
+            print(f"[ai:clauses:cache_hit] request_id={req_id} input_hash={input_hash}")
+            return success_envelope(with_cached_flag(cached_output, True), req_id)
+
+        prompt = build_document_clauses_prompt(chunks)
+        clauses = await generate_clauses(prompt)
+        normalized = normalize_clauses_payload(clauses)
+        await save_ai_output(
+            pool,
+            document_id=document_id,
+            user_id=user_id,
+            feature=feature,
+            input_hash=input_hash,
+            output_json=normalized,
+        )
+        print(
+            f"[ai:clauses:success] request_id={req_id} "
+            f"document_type={normalized.get('documentType')} "
+            f"clause_count={len(normalized.get('clauses', []))}"
+        )
+        return success_envelope(with_cached_flag(normalized, False), req_id)
+    except HTTPException as exc:
+        return error_envelope_response(
+            message=str(exc.detail),
+            request_id_value=req_id,
+            status_code_value=exc.status_code,
+            error_type="HTTPException",
+        )
+    except AIProviderError as exc:
+        log_exception("ai_clauses", exc, req_id, provider="openai", model=exc.model, raw_response=sanitize_log_text(exc.raw_response))
+        return error_envelope_response(
+            message=str(exc),
+            request_id_value=req_id,
+            status_code_value=exc.status_code,
+            error_type=exc.error_type,
+            details={
+                "provider": "openai",
+                "model": exc.model,
+                "timeoutSeconds": AI_TIMEOUT_SECONDS,
+                "rawResponse": sanitize_log_text(exc.raw_response),
+            },
+        )
+    except Exception as exc:
+        log_exception("clauses_endpoint", exc, req_id)
+        return error_envelope_response(
+            message=str(exc),
+            request_id_value=req_id,
+            status_code_value=500,
+            error_type=exc.__class__.__name__,
+        )
+
+
+@app.post("/api/documents/{document_id}/risk-analysis")
+async def document_risk_analysis(
+    request: Request,
+    document_id: str,
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    req_id = request.headers.get("x-request-id") or request_id()
+    print(
+        f"[ai:risk:start] request_id={req_id} document_id={document_id} "
+        f"user_id={user_id} ai_provider=openai model={OPENAI_ANALYSIS_MODEL} "
+        f"timeout_seconds={AI_TIMEOUT_SECONDS}"
+    )
+    try:
+        document = await get_owned_document(pool, document_id, user_id)
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found.")
+
+        chunks = await get_document_chunks_in_order(pool, document_id, user_id)
+        print(f"[ai:risk:chunks] request_id={req_id} chunk_count={len(chunks)}")
+        if not chunks:
+            raise HTTPException(
+                status_code=400,
+                detail="Document has no processed text chunks available for risk analysis.",
+            )
+
+        feature = "risk_analysis"
+        input_hash = await document_feature_input_hash(
+            pool,
+            document_id=document_id,
+            user_id=user_id,
+            feature=feature,
+            chunks=chunks,
+        )
+        cached_output = await get_cached_ai_output(
+            pool,
+            document_id=document_id,
+            user_id=user_id,
+            feature=feature,
+            input_hash=input_hash,
+        )
+        if cached_output is not None:
+            print(f"[ai:risk:cache_hit] request_id={req_id} input_hash={input_hash}")
+            return success_envelope(with_cached_flag(cached_output, True), req_id)
+
+        prompt = build_document_risk_analysis_prompt(chunks)
+        risk_analysis = await generate_risk_analysis(prompt)
+        normalized = normalize_risk_analysis_payload(risk_analysis)
+        await save_ai_output(
+            pool,
+            document_id=document_id,
+            user_id=user_id,
+            feature=feature,
+            input_hash=input_hash,
+            output_json=normalized,
+        )
+        print(
+            f"[ai:risk:success] request_id={req_id} "
+            f"document_type={normalized.get('documentType')} "
+            f"overall_risk={normalized.get('overallRisk')} "
+            f"risk_count={len(normalized.get('risks', []))}"
+        )
+        return success_envelope(with_cached_flag(normalized, False), req_id)
+    except HTTPException as exc:
+        return error_envelope_response(
+            message=str(exc.detail),
+            request_id_value=req_id,
+            status_code_value=exc.status_code,
+            error_type="HTTPException",
+        )
+    except AIProviderError as exc:
+        log_exception("ai_risk_analysis", exc, req_id, provider="openai", model=exc.model, raw_response=sanitize_log_text(exc.raw_response))
+        return error_envelope_response(
+            message=str(exc),
+            request_id_value=req_id,
+            status_code_value=exc.status_code,
+            error_type=exc.error_type,
+            details={
+                "provider": "openai",
+                "model": exc.model,
+                "timeoutSeconds": AI_TIMEOUT_SECONDS,
+                "rawResponse": sanitize_log_text(exc.raw_response),
+            },
+        )
+    except Exception as exc:
+        log_exception("risk_analysis_endpoint", exc, req_id)
+        return error_envelope_response(
+            message=str(exc),
+            request_id_value=req_id,
+            status_code_value=500,
+            error_type=exc.__class__.__name__,
+        )
+
+
+@app.post("/api/documents/{document_id}/compare")
+async def compare_documents(
+    request: Request,
+    document_id: str,
+    payload: CompareDocumentsRequest,
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    req_id = request.headers.get("x-request-id") or request_id()
+    print(
+        f"[ai:compare:start] request_id={req_id} document_id={document_id} "
+        f"second_document_id={payload.second_document_id} user_id={user_id} "
+        f"ai_provider=openai model={OPENAI_ANALYSIS_MODEL} timeout_seconds={COMPARE_TIMEOUT_SECONDS} "
+        f"max_output_tokens={COMPARE_MAX_OUTPUT_TOKENS}"
+    )
+    try:
+        try:
+            current_document_id = str(uuid.UUID(document_id))
+            second_document_id = str(uuid.UUID(payload.second_document_id))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Valid document IDs are required.") from exc
+
+        if current_document_id == second_document_id:
+            raise HTTPException(status_code=400, detail="Choose a different document to compare.")
+
+        document_a = await get_owned_document(pool, current_document_id, user_id)
+        if not document_a:
+            raise HTTPException(status_code=404, detail="Document not found.")
+
+        document_b = await get_owned_document(pool, second_document_id, user_id)
+        if not document_b:
+            raise HTTPException(status_code=404, detail="Second document not found.")
+
+        chunks_a = await get_document_chunks_in_order(pool, current_document_id, user_id)
+        chunks_b = await get_document_chunks_in_order(pool, second_document_id, user_id)
+        print(
+            f"[ai:compare:chunks] request_id={req_id} "
+            f"document_a_chunks={len(chunks_a)} document_b_chunks={len(chunks_b)}"
+        )
+        if not chunks_a:
+            raise HTTPException(
+                status_code=400,
+                detail="Current document has no processed text chunks available for comparison.",
+            )
+        if not chunks_b:
+            raise HTTPException(
+                status_code=400,
+                detail="Second document has no processed text chunks available for comparison.",
+            )
+
+        feature = "compare_documents"
+        input_hash = await compare_feature_input_hash(
+            pool,
+            document_a_id=current_document_id,
+            document_b_id=second_document_id,
+            user_id=user_id,
+            chunks_a=chunks_a,
+            chunks_b=chunks_b,
+        )
+        cached_output = await get_cached_ai_output(
+            pool,
+            document_id=current_document_id,
+            user_id=user_id,
+            feature=feature,
+            input_hash=input_hash,
+        )
+        if cached_output is not None:
+            print(f"[ai:compare:cache_hit] request_id={req_id} input_hash={input_hash}")
+            return success_envelope(with_cached_flag(cached_output, True), req_id)
+
+        compare_chunks_a = select_compare_chunks(chunks_a)
+        compare_chunks_b = select_compare_chunks(chunks_b)
+        compare_chars_a = sum(len(row["chunk_text"] or "") for row in compare_chunks_a)
+        compare_chars_b = sum(len(row["chunk_text"] or "") for row in compare_chunks_b)
+        print(
+            f"[ai:compare:selected_chunks] request_id={req_id} "
+            f"document_a_selected={len(compare_chunks_a)} document_a_chars={compare_chars_a} "
+            f"document_b_selected={len(compare_chunks_b)} document_b_chars={compare_chars_b} "
+            f"char_budget_per_document={COMPARE_CONTEXT_CHAR_BUDGET}"
+        )
+
+        prompt = build_document_compare_prompt(document_a, compare_chunks_a, document_b, compare_chunks_b)
+        comparison = await generate_document_compare(prompt)
+        normalized = normalize_compare_payload(comparison, document_a, document_b)
+        await save_ai_output(
+            pool,
+            document_id=current_document_id,
+            user_id=user_id,
+            feature=feature,
+            input_hash=input_hash,
+            output_json=normalized,
+        )
+        print(
+            f"[ai:compare:success] request_id={req_id} "
+            f"are_comparable={normalized.get('areComparable')} "
+            f"difference_count={len(normalized.get('differences', []))}"
+        )
+        return success_envelope(with_cached_flag(normalized, False), req_id)
+    except HTTPException as exc:
+        return error_envelope_response(
+            message=str(exc.detail),
+            request_id_value=req_id,
+            status_code_value=exc.status_code,
+            error_type="HTTPException",
+        )
+    except AIProviderError as exc:
+        log_exception("ai_compare_documents", exc, req_id, provider="openai", model=exc.model, raw_response=sanitize_log_text(exc.raw_response))
+        ai_error_details = None if exc.error_type in {"EmptyOpenAIResponse", "APITimeoutError", "TimeoutError"} else {
+            "provider": "openai",
+            "model": exc.model,
+            "timeoutSeconds": COMPARE_TIMEOUT_SECONDS,
+            "rawResponse": sanitize_log_text(exc.raw_response),
+        }
+        return error_envelope_response(
+            message=str(exc),
+            request_id_value=req_id,
+            status_code_value=exc.status_code,
+            error_type=exc.error_type,
+            details={
+                "provider": "openai",
+                "model": exc.model,
+                "timeoutSeconds": AI_TIMEOUT_SECONDS,
+                "rawResponse": sanitize_log_text(exc.raw_response),
+            },
+        )
+    except Exception as exc:
+        log_exception("compare_endpoint", exc, req_id)
+        return error_envelope_response(
+            message=str(exc),
+            request_id_value=req_id,
+            status_code_value=500,
+            error_type=exc.__class__.__name__,
+        )
 
 
 @app.delete("/api/documents/{document_id}")

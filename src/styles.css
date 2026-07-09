@@ -1379,6 +1379,32 @@ p {
   box-shadow: var(--shadow);
 }
 
+.upload-auth-lock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--orange) 48%, var(--border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--orange) 12%, transparent), transparent 58%),
+    color-mix(in srgb, var(--card) 88%, transparent);
+}
+
+.upload-auth-lock span {
+  color: var(--orange);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
+.upload-auth-lock p {
+  flex: 1;
+  color: var(--muted);
+}
+
 .upload-zone {
   min-height: 310px;
   display: grid;
@@ -1397,6 +1423,16 @@ p {
 .upload-zone.dragging {
   border-color: var(--lime);
   transform: translateY(-2px);
+}
+
+.upload-zone.disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.upload-zone.disabled:hover {
+  border-color: var(--border-strong);
+  transform: none;
 }
 
 .upload-zone input {
@@ -1496,6 +1532,10 @@ p {
 
 .upload-status.uploaded {
   border-color: var(--lime);
+}
+
+.upload-status.locked {
+  border-color: color-mix(in srgb, var(--orange) 54%, var(--border));
 }
 
 .upload-status.error,
@@ -2055,6 +2095,1122 @@ p {
   font-weight: 650;
 }
 
+.summary-workspace {
+  min-height: min(720px, calc(100svh - 200px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.summary-workspace-header {
+  padding: 20px clamp(1rem, 2vw, 1.5rem) 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.summary-workspace-header span {
+  color: var(--orange);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 650;
+}
+
+.summary-workspace-header h2 {
+  margin-top: 8px;
+  font-size: clamp(1.9rem, 3vw, 3rem);
+  line-height: 1;
+  letter-spacing: -0.018em;
+}
+
+.summary-workspace-header p {
+  max-width: 760px;
+  margin-top: 10px;
+  color: var(--muted);
+}
+
+.summary-markdown {
+  margin: clamp(1rem, 2vw, 1.5rem);
+}
+
+.summary-markdown {
+  max-height: calc(100svh - 330px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--card) 90%, transparent), transparent),
+    color-mix(in srgb, var(--bg) 64%, transparent);
+  padding: clamp(1.1rem, 2.4vw, 2rem);
+}
+
+.summary-markdown h2,
+.summary-markdown h3,
+.summary-markdown h4 {
+  max-width: 900px;
+}
+
+.summary-markdown h2 {
+  font-size: clamp(2.2rem, 4vw, 4rem);
+  line-height: 0.98;
+  letter-spacing: -0.025em;
+  margin-bottom: 20px;
+}
+
+.summary-markdown h3 {
+  padding-top: 20px;
+  margin-top: 22px;
+  border-top: 1px solid var(--border);
+  font-size: clamp(1.4rem, 2vw, 2rem);
+  line-height: 1.05;
+}
+
+.summary-markdown h4 {
+  margin-top: 18px;
+  color: var(--lime);
+  font-size: 1.1rem;
+}
+
+.summary-markdown p,
+.summary-markdown li {
+  max-width: 900px;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.summary-markdown p {
+  margin-top: 12px;
+}
+
+.summary-markdown ul {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding-left: 1.2rem;
+}
+
+.summary-markdown strong {
+  color: var(--text);
+}
+
+.intelligence-workspace {
+  min-height: min(720px, calc(100svh - 200px));
+  display: block;
+}
+
+.intelligence-header {
+  padding: 20px clamp(1rem, 2vw, 1.5rem) 16px;
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(circle at 85% 0%, color-mix(in srgb, var(--lime) 12%, transparent), transparent 20rem),
+    linear-gradient(135deg, color-mix(in srgb, var(--card) 82%, transparent), transparent);
+}
+
+.intelligence-header span {
+  color: var(--orange);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 650;
+}
+
+.intelligence-header h2 {
+  margin-top: 8px;
+  font-size: clamp(1.9rem, 3vw, 3rem);
+  line-height: 1;
+  letter-spacing: -0.018em;
+}
+
+.intelligence-header p {
+  max-width: 760px;
+  margin-top: 10px;
+  color: var(--muted);
+}
+
+.ai-loading-panel {
+  margin: clamp(1rem, 2vw, 1.5rem);
+  min-height: 320px;
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--lime) 14%, transparent), transparent 18rem),
+    linear-gradient(135deg, color-mix(in srgb, var(--violet) 10%, transparent), transparent 62%),
+    color-mix(in srgb, var(--card) 82%, transparent);
+  padding: clamp(1rem, 2.2vw, 1.75rem);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.16);
+}
+
+.ai-loading-panel.intelligence {
+  background:
+    radial-gradient(circle at 88% 4%, color-mix(in srgb, var(--lime) 16%, transparent), transparent 18rem),
+    radial-gradient(circle at 0% 100%, color-mix(in srgb, var(--orange) 12%, transparent), transparent 16rem),
+    linear-gradient(135deg, color-mix(in srgb, var(--violet) 10%, transparent), transparent 62%),
+    color-mix(in srgb, var(--card) 82%, transparent);
+}
+
+.ai-loading-copy {
+  max-width: 780px;
+}
+
+.ai-loading-copy span {
+  color: var(--lime);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 650;
+}
+
+.ai-loading-copy h3 {
+  margin-top: 8px;
+  font-size: clamp(1.55rem, 2.8vw, 2.6rem);
+  line-height: 1;
+  letter-spacing: -0.018em;
+}
+
+.ai-loading-copy p {
+  max-width: 680px;
+  margin-top: 10px;
+  color: var(--muted);
+}
+
+.ai-loading-track {
+  position: relative;
+  height: 8px;
+  margin-top: clamp(1rem, 2vw, 1.6rem);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, var(--lime) 28%);
+  background: color-mix(in srgb, var(--bg) 58%, transparent);
+}
+
+.ai-loading-track span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 44%;
+  background: linear-gradient(90deg, var(--orange), var(--lime), var(--violet));
+  box-shadow: 0 0 26px color-mix(in srgb, var(--lime) 30%, transparent);
+  animation: ai-loading-bar 1.45s ease-in-out infinite;
+}
+
+.ai-loading-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: clamp(1rem, 2vw, 1.5rem);
+}
+
+.ai-loading-panel.intelligence .ai-loading-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ai-loading-panel.clauses .ai-loading-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ai-loading-card {
+  min-height: 132px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, var(--lime) 18%);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--card-strong) 78%, transparent), color-mix(in srgb, var(--bg) 74%, transparent)),
+    var(--card);
+  padding: 16px;
+  overflow: hidden;
+}
+
+.ai-loading-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.ai-loading-card i,
+.ai-loading-card em {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.ai-loading-card i::after,
+.ai-loading-card em::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 20%, transparent), transparent);
+  animation: ai-shimmer 1.5s ease-in-out infinite;
+}
+
+.ai-loading-card i {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+}
+
+.ai-loading-card b {
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ai-loading-card em {
+  height: 9px;
+  margin-top: 9px;
+}
+
+.ai-loading-card em.short {
+  width: 58%;
+}
+
+@keyframes ai-loading-bar {
+  0% {
+    transform: translateX(-105%);
+  }
+  52% {
+    transform: translateX(95%);
+  }
+  100% {
+    transform: translateX(240%);
+  }
+}
+
+@keyframes ai-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.intelligence-dashboard {
+  max-height: none;
+  overflow: visible;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: auto;
+  align-items: start;
+  gap: clamp(1rem, 2vw, 1.5rem);
+  padding: clamp(1rem, 2vw, 1.5rem);
+}
+
+.intel-card {
+  grid-column: span 1;
+  min-width: 0;
+  min-height: 180px;
+  height: auto;
+  overflow: visible;
+  border: 1px solid var(--border);
+  border-top-color: color-mix(in srgb, var(--lime) 48%, var(--orange) 22%);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--card) 92%, transparent), color-mix(in srgb, var(--bg) 72%, transparent)),
+    var(--card);
+  padding: clamp(1.05rem, 1.8vw, 1.6rem);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.16);
+  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.intel-card:hover {
+  border-color: color-mix(in srgb, var(--lime) 48%, var(--orange) 18%);
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--lime) 10%, transparent), transparent 16rem),
+    linear-gradient(145deg, color-mix(in srgb, var(--card-strong) 92%, transparent), color-mix(in srgb, var(--bg) 72%, transparent)),
+    var(--card);
+}
+
+.intel-card-wide {
+  grid-column: 1 / -1;
+  min-height: 0;
+}
+
+.intel-card-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  margin-bottom: 18px;
+}
+
+.intel-card-icon {
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, var(--lime) 28%);
+  color: var(--lime);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--lime) 11%, transparent), color-mix(in srgb, var(--orange) 8%, transparent)),
+    color-mix(in srgb, var(--card-strong) 86%, transparent);
+  font-family: var(--font-display);
+  font-weight: 650;
+  line-height: 1;
+}
+
+.intel-card-heading p {
+  color: var(--subtle);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 650;
+}
+
+.intel-card-heading h3 {
+  max-width: 760px;
+  margin-top: 4px;
+  font-size: clamp(1.25rem, 2vw, 1.85rem);
+  line-height: 1.12;
+  letter-spacing: -0.012em;
+  overflow-wrap: anywhere;
+}
+
+.intel-snapshot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.intel-metric,
+.intel-key-item {
+  min-width: 0;
+  min-height: 86px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 50%, transparent);
+  padding: 13px 14px;
+}
+
+.intel-metric span,
+.intel-key-item span,
+.intel-obligation-party span,
+.intel-timeline-item span {
+  display: block;
+  color: var(--subtle);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 650;
+}
+
+.intel-metric strong {
+  display: block;
+  margin-top: 8px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: clamp(1.02rem, 1.55vw, 1.45rem);
+  line-height: 1.18;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.intel-summary-text {
+  max-width: 1040px;
+  color: var(--text);
+  font-size: clamp(1rem, 1.25vw, 1.14rem);
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.intel-key-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.intel-key-item strong {
+  display: block;
+  margin-top: 8px;
+  color: var(--text);
+  font-size: 0.98rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.intel-timeline {
+  display: grid;
+  gap: 12px;
+}
+
+.intel-timeline::before {
+  display: none;
+}
+
+.intel-timeline-item {
+  border-left: 1px solid color-mix(in srgb, var(--lime) 45%, var(--border));
+  background: color-mix(in srgb, var(--bg) 46%, transparent);
+  padding: 11px 12px 11px 16px;
+}
+
+.intel-timeline-item::before {
+  display: none;
+}
+
+.intel-timeline-item strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.intel-timeline-item p {
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.intel-obligations-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.intel-obligation-party {
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 52%, transparent);
+  padding: 12px;
+}
+
+.intel-obligation-party ul,
+.intel-insight-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.intel-obligation-party li {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.intel-tags,
+.intel-question-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.intel-tags span {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, var(--violet) 30%);
+  color: var(--text);
+  background: color-mix(in srgb, var(--violet) 10%, var(--card));
+  padding: 9px 11px;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.intel-insight {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 50%, transparent);
+  padding: 10px 11px;
+}
+
+.intel-insight span {
+  color: var(--lime);
+  font-weight: 700;
+}
+
+.intel-insight-list.risk .intel-insight {
+  border-color: color-mix(in srgb, var(--orange) 42%, var(--border));
+  background: color-mix(in srgb, var(--orange) 8%, transparent);
+}
+
+.intel-insight-list.risk .intel-insight span {
+  color: var(--orange);
+}
+
+.intel-insight p,
+.intel-empty {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.intel-question-chip {
+  border: 1px solid color-mix(in srgb, var(--border) 72%, var(--lime) 28%);
+  color: var(--text);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--orange) 9%, transparent), color-mix(in srgb, var(--lime) 8%, transparent)),
+    color-mix(in srgb, var(--card-strong) 84%, transparent);
+  padding: 12px 14px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+}
+
+.intel-question-chip:hover,
+.intel-question-chip:focus {
+  border-color: var(--lime);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--lime) 14%, transparent);
+}
+
+.intel-question-chip:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.clauses-workspace {
+  min-height: min(720px, calc(100svh - 200px));
+  display: block;
+}
+
+.clauses-header {
+  padding: 20px clamp(1rem, 2vw, 1.5rem) 16px;
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--orange) 12%, transparent), transparent 20rem),
+    linear-gradient(135deg, color-mix(in srgb, var(--card) 82%, transparent), transparent);
+}
+
+.clauses-header span {
+  color: var(--orange);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 650;
+}
+
+.clauses-header h2 {
+  margin-top: 8px;
+  font-size: clamp(1.9rem, 3vw, 3rem);
+  line-height: 1;
+  letter-spacing: -0.018em;
+}
+
+.clauses-header p {
+  max-width: 780px;
+  margin-top: 10px;
+  color: var(--muted);
+}
+
+.ai-loading-panel.clauses {
+  background:
+    radial-gradient(circle at 92% 0%, color-mix(in srgb, var(--orange) 16%, transparent), transparent 18rem),
+    radial-gradient(circle at 0% 100%, color-mix(in srgb, var(--lime) 10%, transparent), transparent 16rem),
+    linear-gradient(135deg, color-mix(in srgb, var(--violet) 8%, transparent), transparent 62%),
+    color-mix(in srgb, var(--card) 82%, transparent);
+}
+
+.clause-dashboard {
+  display: grid;
+  gap: clamp(1rem, 2vw, 1.5rem);
+  padding: clamp(1rem, 2vw, 1.5rem);
+}
+
+.clause-document-card,
+.clause-empty-state {
+  border: 1px solid var(--border);
+  border-top-color: color-mix(in srgb, var(--lime) 48%, var(--orange) 22%);
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--lime) 10%, transparent), transparent 18rem),
+    linear-gradient(145deg, color-mix(in srgb, var(--card) 92%, transparent), color-mix(in srgb, var(--bg) 72%, transparent)),
+    var(--card);
+  padding: clamp(1rem, 2vw, 1.5rem);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.16);
+}
+
+.clause-document-card span,
+.clause-empty-state span,
+.clause-card-top span,
+.clause-field-label {
+  display: block;
+  color: var(--subtle);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 650;
+}
+
+.clause-document-card strong,
+.clause-empty-state h3 {
+  display: block;
+  margin-top: 8px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: clamp(1.65rem, 2.6vw, 2.6rem);
+  line-height: 1;
+  letter-spacing: -0.018em;
+}
+
+.clause-document-card p,
+.clause-empty-state p {
+  max-width: 760px;
+  margin-top: 10px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.clause-card-list {
+  display: grid;
+  gap: clamp(1rem, 2vw, 1.5rem);
+}
+
+.clause-intel-card {
+  min-height: 0;
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--card) 92%, transparent), color-mix(in srgb, var(--bg) 72%, transparent)),
+    var(--card);
+  padding: clamp(1rem, 2vw, 1.5rem);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.14);
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.clause-intel-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--lime) 44%, var(--orange) 22%);
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--orange) 9%, transparent), transparent 16rem),
+    linear-gradient(145deg, color-mix(in srgb, var(--card-strong) 92%, transparent), color-mix(in srgb, var(--bg) 72%, transparent)),
+    var(--card);
+}
+
+.clause-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.clause-card-top h3 {
+  max-width: 900px;
+  margin-top: 8px;
+  color: var(--text);
+  font-size: clamp(1.45rem, 2.2vw, 2.25rem);
+  line-height: 1.08;
+  letter-spacing: -0.014em;
+  overflow-wrap: anywhere;
+}
+
+.clause-risk {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg) 54%, transparent);
+  padding: 8px 10px;
+  font-size: 0.74rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.clause-risk.risk-low {
+  border-color: color-mix(in srgb, var(--lime) 52%, var(--border));
+  color: var(--lime);
+  background: color-mix(in srgb, var(--lime) 8%, transparent);
+}
+
+.clause-risk.risk-medium {
+  border-color: color-mix(in srgb, var(--orange) 58%, var(--border));
+  color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 9%, transparent);
+}
+
+.clause-risk.risk-high {
+  border-color: color-mix(in srgb, #ff4d4d 64%, var(--border));
+  color: #ff6b5f;
+  background: color-mix(in srgb, #ff4d4d 10%, transparent);
+}
+
+.clause-card-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.clause-card-body > div,
+.clause-why-block {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 46%, transparent);
+  padding: 14px;
+}
+
+.clause-plain-text,
+.clause-why-block p {
+  margin-top: 8px;
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.62;
+  overflow-wrap: anywhere;
+}
+
+.clause-why-block p {
+  color: var(--muted);
+}
+
+.clause-meta-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.clause-meta-strip span {
+  border: 1px solid color-mix(in srgb, var(--border) 76%, var(--violet) 24%);
+  color: var(--muted);
+  background: color-mix(in srgb, var(--violet) 8%, transparent);
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.clause-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.clause-detail-section {
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 44%, transparent);
+}
+
+.clause-detail-section summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 13px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.clause-detail-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.clause-detail-section summary::before {
+  content: "+";
+  color: var(--lime);
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+.clause-detail-section[open] summary::before {
+  content: "-";
+}
+
+.clause-detail-section summary span {
+  margin-right: auto;
+}
+
+.clause-detail-section summary em {
+  min-width: 28px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, var(--lime) 30%);
+  color: var(--lime);
+  background: color-mix(in srgb, var(--lime) 8%, transparent);
+  padding: 3px 7px;
+  font-style: normal;
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.clause-detail-content {
+  border-top: 1px solid var(--border);
+  padding: 12px 13px 14px;
+}
+
+.clause-party-actions {
+  display: grid;
+  gap: 9px;
+}
+
+.clause-party-action {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 70%, transparent);
+  padding: 10px 11px;
+}
+
+.clause-party-action span {
+  color: var(--lime);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 650;
+}
+
+.clause-party-action p {
+  margin-top: 5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.risk-workspace {
+  min-height: min(720px, calc(100svh - 200px));
+  display: block;
+}
+
+.risk-header {
+  padding: 20px clamp(1rem, 2vw, 1.5rem) 16px;
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(circle at 88% 0%, color-mix(in srgb, #ff4d4d 12%, transparent), transparent 20rem),
+    radial-gradient(circle at 0% 100%, color-mix(in srgb, var(--orange) 9%, transparent), transparent 18rem),
+    linear-gradient(135deg, color-mix(in srgb, var(--card) 82%, transparent), transparent);
+}
+
+.risk-header span,
+.risk-overview-card span,
+.risk-empty-state span,
+.risk-card-top span,
+.risk-field-label,
+.risk-support-card > div > span {
+  display: block;
+  color: var(--subtle);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 650;
+}
+
+.risk-header > span {
+  color: var(--orange);
+  letter-spacing: 0.1em;
+}
+
+.risk-header h2 {
+  margin-top: 8px;
+  font-size: clamp(1.9rem, 3vw, 3rem);
+  line-height: 1;
+  letter-spacing: -0.018em;
+}
+
+.risk-header p {
+  max-width: 780px;
+  margin-top: 10px;
+  color: var(--muted);
+}
+
+.ai-loading-panel.risks {
+  background:
+    radial-gradient(circle at 92% 0%, color-mix(in srgb, #ff4d4d 14%, transparent), transparent 18rem),
+    radial-gradient(circle at 0% 100%, color-mix(in srgb, var(--orange) 12%, transparent), transparent 16rem),
+    linear-gradient(135deg, color-mix(in srgb, var(--violet) 8%, transparent), transparent 62%),
+    color-mix(in srgb, var(--card) 82%, transparent);
+}
+
+.ai-loading-panel.risks .ai-loading-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.risk-dashboard {
+  display: grid;
+  gap: clamp(1rem, 2vw, 1.5rem);
+  padding: clamp(1rem, 2vw, 1.5rem);
+}
+
+.risk-overview-card,
+.risk-empty-state,
+.risk-item-card,
+.risk-support-card {
+  min-height: 0;
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--card) 92%, transparent), color-mix(in srgb, var(--bg) 72%, transparent)),
+    var(--card);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.14);
+}
+
+.risk-overview-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.45fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: stretch;
+  border-top-color: color-mix(in srgb, var(--orange) 54%, #ff4d4d 18%);
+  padding: clamp(1rem, 2vw, 1.5rem);
+}
+
+.risk-overview-card strong,
+.risk-empty-state h3 {
+  display: block;
+  margin-top: 8px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: clamp(1.65rem, 2.6vw, 2.6rem);
+  line-height: 1;
+  letter-spacing: -0.018em;
+  overflow-wrap: anywhere;
+}
+
+.risk-overview-main {
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--orange) 12%, transparent), transparent 15rem),
+    color-mix(in srgb, var(--bg) 46%, transparent);
+  padding: 14px;
+}
+
+.risk-overview-main p,
+.risk-empty-state p {
+  margin-top: 12px;
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.risk-overall-badge,
+.risk-severity {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg) 54%, transparent);
+  padding: 8px 10px;
+  font-size: 0.74rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.risk-overall-badge::before,
+.risk-severity::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin-right: 8px;
+  background: currentColor;
+}
+
+.risk-overall-badge.risk-low,
+.risk-severity.risk-low {
+  border-color: color-mix(in srgb, var(--lime) 52%, var(--border));
+  color: var(--lime);
+  background: color-mix(in srgb, var(--lime) 8%, transparent);
+}
+
+.risk-overall-badge.risk-medium,
+.risk-severity.risk-medium {
+  border-color: color-mix(in srgb, var(--orange) 58%, var(--border));
+  color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 9%, transparent);
+}
+
+.risk-overall-badge.risk-high,
+.risk-severity.risk-high {
+  border-color: color-mix(in srgb, #ff4d4d 64%, var(--border));
+  color: #ff6b5f;
+  background: color-mix(in srgb, #ff4d4d 10%, transparent);
+}
+
+.risk-card-list {
+  display: grid;
+  gap: clamp(1rem, 2vw, 1.5rem);
+}
+
+.risk-item-card {
+  padding: clamp(1rem, 2vw, 1.5rem);
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.risk-item-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--orange) 48%, #ff4d4d 18%);
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, #ff4d4d 8%, transparent), transparent 16rem),
+    linear-gradient(145deg, color-mix(in srgb, var(--card-strong) 92%, transparent), color-mix(in srgb, var(--bg) 72%, transparent)),
+    var(--card);
+}
+
+.risk-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.risk-card-top h3 {
+  max-width: 900px;
+  margin-top: 8px;
+  color: var(--text);
+  font-size: clamp(1.45rem, 2.2vw, 2.25rem);
+  line-height: 1.08;
+  letter-spacing: -0.014em;
+  overflow-wrap: anywhere;
+}
+
+.risk-explanation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.risk-explanation-grid > div {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 46%, transparent);
+  padding: 14px;
+}
+
+.risk-explanation-grid .risk-recommendation {
+  grid-column: 1 / -1;
+  border-color: color-mix(in srgb, var(--lime) 34%, var(--border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--lime) 7%, transparent), transparent),
+    color-mix(in srgb, var(--bg) 46%, transparent);
+}
+
+.risk-explanation-grid p:not(.risk-field-label) {
+  margin-top: 8px;
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.62;
+  overflow-wrap: anywhere;
+}
+
+.risk-explanation-grid > div:nth-child(2) p:not(.risk-field-label) {
+  color: var(--muted);
+}
+
+.risk-meta-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.risk-meta-strip span {
+  border: 1px solid color-mix(in srgb, var(--border) 76%, var(--orange) 24%);
+  color: var(--muted);
+  background: color-mix(in srgb, var(--orange) 7%, transparent);
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.risk-support-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(1rem, 2vw, 1.5rem);
+}
+
+.risk-support-card {
+  padding: clamp(1rem, 1.7vw, 1.35rem);
+}
+
+.risk-support-card > div {
+  margin-bottom: 12px;
+}
+
+.risk-support-card > div > p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.risk-empty-state {
+  padding: clamp(1rem, 2vw, 1.5rem);
+}
+
 .workspace-disabled-tool {
   min-height: min(720px, calc(100svh - 200px));
   display: grid;
@@ -2166,6 +3322,10 @@ p {
   .summary-card {
     grid-column: span 2;
   }
+
+  .intel-snapshot-grid {
+    grid-template-columns: repeat(3, minmax(130px, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
@@ -2263,6 +3423,11 @@ p {
     flex: 1 1 130px;
   }
 
+  .upload-auth-lock {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .why-juris-modern {
     padding-top: 60px;
     padding-bottom: 60px;
@@ -2326,8 +3491,57 @@ p {
 
   .workspace-panel,
   .ask-workspace,
+  .summary-workspace,
+  .intelligence-workspace,
+  .clauses-workspace,
+  .risk-workspace,
   .workspace-disabled-tool {
     min-height: calc(100svh - 220px);
+  }
+
+  .summary-markdown,
+  .intelligence-dashboard {
+    max-height: none;
+  }
+
+  .ai-loading-grid,
+  .ai-loading-panel.intelligence .ai-loading-grid,
+  .ai-loading-panel.clauses .ai-loading-grid,
+  .ai-loading-panel.risks .ai-loading-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-loading-card {
+    min-height: 116px;
+  }
+
+  .intelligence-dashboard {
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+
+  .intel-card,
+  .intel-card-wide {
+    grid-column: 1;
+  }
+
+  .intel-snapshot-grid,
+  .intel-key-grid,
+  .intel-obligations-grid,
+  .clause-card-body,
+  .clause-detail-grid,
+  .risk-overview-card,
+  .risk-explanation-grid,
+  .risk-support-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .risk-explanation-grid .risk-recommendation {
+    grid-column: 1;
+  }
+
+  .intel-question-chip {
+    width: 100%;
   }
 
   .chat-thread {

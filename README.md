@@ -41,6 +41,8 @@ uvicorn app.main:app --reload
 ```
 
 Apply the database migration in `backend/db/migrations/001_documents_r2.sql`.
-Apply `backend/db/migrations/002_document_text.sql` to store extracted PDF text, apply `backend/db/migrations/003_document_chunks.sql` to store overlapping text chunks, then apply `backend/db/migrations/004_chunk_embeddings.sql` to add pgvector Gemini embeddings. PDF uploads are processed with `pypdf`; successful extraction, chunking, and embedding sets `documents.status` to `processed`, and extraction failures set it to `extraction_failed`.
+Apply `backend/db/migrations/002_document_text.sql` to store extracted PDF text, apply `backend/db/migrations/003_document_chunks.sql` to store overlapping text chunks, apply `backend/db/migrations/004_chunk_embeddings.sql` to add pgvector embeddings, then apply `backend/db/migrations/006_openai_embeddings.sql` to support 1536-dimensional OpenAI embeddings. PDF uploads are processed with `pypdf`; successful extraction, chunking, and embedding sets `documents.status` to `processed`, and extraction failures set it to `extraction_failed`.
 
-The backend needs `SUPABASE_URL` and `SUPABASE_ANON_KEY` or `SUPABASE_SERVICE_ROLE_KEY` to call `{SUPABASE_URL}/auth/v1/user`, plus `GEMINI_API_KEY` to generate embeddings. R2 credentials only belong in backend environment variables. The frontend uses `VITE_API_BASE_URL` and Supabase public client keys only.
+The backend needs `SUPABASE_URL` and `SUPABASE_ANON_KEY` or `SUPABASE_SERVICE_ROLE_KEY` to call `{SUPABASE_URL}/auth/v1/user`. AI uses the OpenAI API with `OPENAI_API_KEY`, `OPENAI_EMBED_MODEL=text-embedding-3-small`, `OPENAI_CHAT_MODEL=gpt-5-mini`, and `OPENAI_ANALYSIS_MODEL=gpt-5-mini`. R2 credentials only belong in backend environment variables. The frontend uses `VITE_API_BASE_URL` and Supabase public client keys only.
+
+Documents embedded with Ollama or any older provider/dimension must be deleted and re-uploaded or reprocessed so their chunks are regenerated with `text-embedding-3-small` 1536-dimensional embeddings.

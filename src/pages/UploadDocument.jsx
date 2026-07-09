@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../components/AuthProvider.jsx";
 import Button from "../components/Button.jsx";
 import Navbar from "../components/Navbar.jsx";
 import {
@@ -12,6 +13,7 @@ const ACCEPTED_EXTENSIONS = [".pdf", ".doc", ".docx"];
 
 export default function UploadDocument() {
   const navigate = useNavigate();
+  const { isSignedIn, loading: authLoading } = useAuth();
   const inputRef = useRef(null);
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState("idle");
@@ -19,6 +21,8 @@ export default function UploadDocument() {
   const [message, setMessage] = useState("");
   const [debugError, setDebugError] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const isLocked = !authLoading && !isSignedIn;
+  const isInteractionDisabled = authLoading || isLocked || status === "uploading";
 
   const fileMeta = useMemo(() => {
     if (!file) return null;
@@ -28,6 +32,22 @@ export default function UploadDocument() {
       type: normalizedContentType(file),
     };
   }, [file]);
+
+  useEffect(() => {
+    if (!isLocked) return;
+    setFile(null);
+    setProgress(0);
+    setIsDragging(false);
+    setDebugError(null);
+    setStatus("locked");
+    setMessage("Please sign in to upload documents.");
+  }, [isLocked]);
+
+  useEffect(() => {
+    if (authLoading || !isSignedIn || status !== "locked") return;
+    setStatus("idle");
+    setMessage("");
+  }, [authLoading, isSignedIn, status]);
 
   function validate(nextFile) {
     setStatus("validating");
@@ -40,7 +60,20 @@ export default function UploadDocument() {
     }
   }
 
+  function showLockedMessage() {
+    setIsDragging(false);
+    setFile(null);
+    setProgress(0);
+    setDebugError(null);
+    setStatus("locked");
+    setMessage(authLoading ? "Checking your session..." : "Please sign in to upload documents.");
+  }
+
   function selectFile(nextFile) {
+    if (authLoading || isLocked) {
+      showLockedMessage();
+      return;
+    }
     if (!nextFile) return;
     try {
       validate(nextFile);
@@ -59,6 +92,11 @@ export default function UploadDocument() {
   }
 
   async function uploadDocument() {
+    if (authLoading || isLocked) {
+      showLockedMessage();
+      return;
+    }
+
     if (!file) {
       setStatus("error");
       setMessage("Choose a file before uploading.");
@@ -93,8 +131,20 @@ export default function UploadDocument() {
 
   function handleDrop(event) {
     event.preventDefault();
+    if (authLoading || isLocked) {
+      showLockedMessage();
+      return;
+    }
     setIsDragging(false);
     selectFile(event.dataTransfer.files?.[0]);
+  }
+
+  function openFilePicker() {
+    if (authLoading || isLocked) {
+      showLockedMessage();
+      return;
+    }
+    inputRef.current?.click();
   }
 
   return (
@@ -112,30 +162,47 @@ export default function UploadDocument() {
           </div>
 
           <div className="upload-card-shell reveal delay-1">
+            {isLocked && (
+              <div className="upload-auth-lock" role="status">
+                <span>Authentication required</span>
+                <p>Please sign in to upload documents.</p>
+                <Button to="/sign-in" variant="secondary">Sign in</Button>
+              </div>
+            )}
+
             <div
-              className={`upload-zone ${isDragging ? "dragging" : ""}`}
-              onClick={() => inputRef.current?.click()}
+              className={`upload-zone ${isDragging ? "dragging" : ""} ${isInteractionDisabled ? "disabled" : ""}`}
+              onClick={openFilePicker}
               onDragOver={(event) => {
                 event.preventDefault();
+                if (authLoading || isLocked) {
+                  showLockedMessage();
+                  return;
+                }
                 setIsDragging(true);
               }}
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
               role="button"
-              tabIndex={0}
+              tabIndex={isInteractionDisabled ? -1 : 0}
+              aria-disabled={isInteractionDisabled}
               onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") inputRef.current?.click();
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openFilePicker();
+                }
               }}
             >
               <input
                 ref={inputRef}
                 type="file"
+                disabled={isInteractionDisabled}
                 accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 onChange={(event) => selectFile(event.target.files?.[0])}
               />
               <span className="upload-mark">+</span>
-              <h2>Drop PDF, DOC, or DOCX here</h2>
-              <p>Maximum size: 25MB. Files are uploaded with user-scoped object keys.</p>
+              <h2>{isLocked ? "Sign in to upload" : "Drop PDF, DOC, or DOCX here"}</h2>
+              <p>{isLocked ? "Please sign in to upload documents." : "Maximum size: 25MB. Files are uploaded with user-scoped object keys."}</p>
             </div>
 
             {fileMeta && (
@@ -166,10 +233,10 @@ export default function UploadDocument() {
             </div>
 
             <div className="upload-actions">
-              <Button type="button" onClick={uploadDocument} disabled={status === "uploading"}>
+              <Button type="button" onClick={uploadDocument} disabled={isInteractionDisabled}>
                 {status === "uploading" ? "Uploading..." : "Upload Document"}
               </Button>
-              <Button type="button" variant="secondary" onClick={() => inputRef.current?.click()}>
+              <Button type="button" variant="secondary" onClick={openFilePicker} disabled={isInteractionDisabled}>
                 Choose File
               </Button>
             </div>

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useAuth } from "../components/AuthProvider.jsx";
 import Button from "../components/Button.jsx";
 import Navbar from "../components/Navbar.jsx";
 import {
@@ -8,30 +9,45 @@ import {
 } from "../lib/documentsApi.js";
 
 export default function Documents() {
+  const { isSignedIn, loading: authLoading } = useAuth();
   const [documents, setDocuments] = useState([]);
   const [status, setStatus] = useState("loading");
   const [message, setMessage] = useState("");
   const [actionError, setActionError] = useState("");
   const [deletingIds, setDeletingIds] = useState(() => new Set());
   const [downloadingId, setDownloadingId] = useState(null);
+  const documentsRequestedRef = useRef(false);
 
   useEffect(() => {
-    let active = true;
+    if (authLoading) {
+      setStatus("loading");
+      setMessage("Loading documents...");
+      return undefined;
+    }
+
+    if (!isSignedIn) {
+      documentsRequestedRef.current = false;
+      setStatus("error");
+      setMessage("Please sign in to view documents.");
+      return undefined;
+    }
+
+    if (documentsRequestedRef.current) return undefined;
+    documentsRequestedRef.current = true;
+
+    setStatus("loading");
+    setMessage("Loading documents...");
     listDocuments()
       .then((items) => {
-        if (!active) return;
         setDocuments(items);
         setStatus("ready");
       })
       .catch((error) => {
-        if (!active) return;
         setStatus("error");
         setMessage(error.message);
       });
-    return () => {
-      active = false;
-    };
-  }, []);
+    return undefined;
+  }, [authLoading, isSignedIn]);
 
   async function handleDelete(document) {
     const documentId = document.id;
