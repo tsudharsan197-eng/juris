@@ -415,8 +415,8 @@ def chunk_text(text_content: str, chunk_size: int = CHUNK_SIZE, overlap: int = C
     return [chunk for chunk in chunks if chunk]
 
 
-def get_openai_client(timeout_seconds: int | None = None) -> OpenAI:
-    return OpenAI(api_key=get_env("OPENAI_API_KEY"), timeout=timeout_seconds or AI_TIMEOUT_SECONDS)
+def get_openai_client() -> OpenAI:
+    return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 
 def log_openai_startup_config():
@@ -700,7 +700,7 @@ def generate_openai_json(
         f"prompt_chars={len(prompt)} timeout_seconds={timeout_seconds or AI_TIMEOUT_SECONDS}"
     )
     try:
-        response = get_openai_client(timeout_seconds).chat.completions.create(
+        response = get_openai_client().chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             max_completion_tokens=max_output_tokens,
@@ -2703,29 +2703,38 @@ async def debug_openai():
         "openai_key_detected": bool(os.getenv("OPENAI_API_KEY")),
         "embed_model": OPENAI_EMBED_MODEL,
         "chat_model": OPENAI_CHAT_MODEL,
-        "models_list": {
-            "ok": False,
-            "error": None,
-            "type": None,
-        },
-        "tiny_embedding": {
-            "ok": False,
-            "error": None,
-            "type": None,
-            "dimensions": None,
-        },
+        "httpx_status": None,
+        "httpx_error_type": None,
+        "httpx_error_message": None,
+        "openai_sdk_models_ok": False,
+        "openai_sdk_models_error_type": None,
+        "openai_sdk_models_error_message": None,
+        "tiny_embedding_ok": False,
+        "tiny_embedding_error_type": None,
+        "tiny_embedding_error_message": None,
+        "tiny_embedding_dimensions": None,
     }
 
     try:
-        await asyncio.to_thread(lambda: get_openai_client().models.list())
-        result["models_list"]["ok"] = True
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://api.openai.com/v1/models",
+                headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"},
+            )
+        result["httpx_status"] = response.status_code
+        if response.status_code >= 400:
+            result["httpx_error_type"] = "HTTPStatusError"
+            result["httpx_error_message"] = sanitize_log_text(response.text, limit=2000)
     except Exception as exc:
-        result["models_list"].update(
-            {
-                "error": openai_error_detail(exc),
-                "type": exc.__class__.__name__,
-            }
-        )
+        result["httpx_error_type"] = exc.__class__.__name__
+        result["httpx_error_message"] = str(exc)
+
+    try:
+        await asyncio.to_thread(lambda: get_openai_client().models.list())
+        result["openai_sdk_models_ok"] = True
+    except Exception as exc:
+        result["openai_sdk_models_error_type"] = exc.__class__.__name__
+        result["openai_sdk_models_error_message"] = openai_error_detail(exc)
 
     try:
         response = await asyncio.to_thread(
@@ -2735,18 +2744,10 @@ async def debug_openai():
             )
         )
         embedding = response.data[0].embedding if response.data else []
-        result["tiny_embedding"].update(
-            {
-                "ok": True,
-                "dimensions": len(embedding),
-            }
-        )
+        result["tiny_embedding_ok"] = True
+        result["tiny_embedding_dimensions"] = len(embedding)
     except Exception as exc:
-        result["tiny_embedding"].update(
-            {
-                "error": openai_error_detail(exc),
-                "type": exc.__class__.__name__,
-            }
-        )
+        result["tiny_embedding_error_type"] = exc.__class__.__name__
+        result["tiny_embedding_error_message"] = openai_error_detail(exc)
 
     return result
