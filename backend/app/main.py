@@ -2695,3 +2695,58 @@ async def delete_document(
 @app.get("/health")
 async def health():
     return {"ok": True}
+
+
+@app.get("/debug/openai")
+async def debug_openai():
+    result = {
+        "openai_key_detected": bool(os.getenv("OPENAI_API_KEY")),
+        "embed_model": OPENAI_EMBED_MODEL,
+        "chat_model": OPENAI_CHAT_MODEL,
+        "models_list": {
+            "ok": False,
+            "error": None,
+            "type": None,
+        },
+        "tiny_embedding": {
+            "ok": False,
+            "error": None,
+            "type": None,
+            "dimensions": None,
+        },
+    }
+
+    try:
+        await asyncio.to_thread(lambda: get_openai_client().models.list())
+        result["models_list"]["ok"] = True
+    except Exception as exc:
+        result["models_list"].update(
+            {
+                "error": openai_error_detail(exc),
+                "type": exc.__class__.__name__,
+            }
+        )
+
+    try:
+        response = await asyncio.to_thread(
+            lambda: get_openai_client().embeddings.create(
+                model=OPENAI_EMBED_MODEL,
+                input="hello",
+            )
+        )
+        embedding = response.data[0].embedding if response.data else []
+        result["tiny_embedding"].update(
+            {
+                "ok": True,
+                "dimensions": len(embedding),
+            }
+        )
+    except Exception as exc:
+        result["tiny_embedding"].update(
+            {
+                "error": openai_error_detail(exc),
+                "type": exc.__class__.__name__,
+            }
+        )
+
+    return result
