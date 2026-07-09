@@ -263,6 +263,7 @@ async def get_db_pool():
 
 @app.on_event("startup")
 async def startup():
+    log_openai_startup_config()
     database_url = os.getenv("DATABASE_URL")
     app.state.db_pool = (
         await asyncpg.create_pool(database_url, statement_cache_size=0)
@@ -418,13 +419,64 @@ def get_openai_client(timeout_seconds: int | None = None) -> OpenAI:
     return OpenAI(api_key=get_env("OPENAI_API_KEY"), timeout=timeout_seconds or AI_TIMEOUT_SECONDS)
 
 
+def log_openai_startup_config():
+    print(
+        "[openai:config] "
+        f"openai_key_detected={bool(os.getenv('OPENAI_API_KEY'))} "
+        f"chat_model={OPENAI_CHAT_MODEL} "
+        f"analysis_model={OPENAI_ANALYSIS_MODEL} "
+        f"embedding_model={OPENAI_EMBED_MODEL} "
+        f"embedding_dimensions={EMBEDDING_DIMENSIONS}"
+    )
+
+
+def openai_status_code(exc: Exception) -> int | None:
+    status_code_value = getattr(exc, "status_code", None)
+    if isinstance(status_code_value, int):
+        return status_code_value
+    response = getattr(exc, "response", None)
+    response_status = getattr(response, "status_code", None)
+    return response_status if isinstance(response_status, int) else None
+
+
+def openai_response_body(exc: Exception) -> str:
+    response = getattr(exc, "response", None)
+    text = getattr(response, "text", None)
+    if callable(text):
+        try:
+            text = text()
+        except Exception:
+            text = None
+    if text:
+        return sanitize_log_text(str(text))
+    return sanitize_log_text(str(exc))
+
+
+def openai_error_detail(exc: Exception) -> str:
+    body = openai_response_body(exc)
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return body
+
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if isinstance(error, dict):
+        message = error.get("message")
+        error_type = error.get("type")
+        error_code = error.get("code")
+        parts = [part for part in [message, error_type, error_code] if part]
+        if parts:
+            return " | ".join(str(part) for part in parts)
+    return body
+
+
 def openai_error_message(exc: Exception, operation: str, model: str) -> str:
     if isinstance(exc, APIConnectionError):
-        return "OpenAI API is not reachable. Check network access and OPENAI_API_KEY."
+        return f"OpenAI {operation} connection error for model {model}: {openai_error_detail(exc)}"
     if isinstance(exc, APITimeoutError):
-        return f"OpenAI {operation} timed out after {AI_TIMEOUT_SECONDS} seconds."
+        return f"OpenAI {operation} timed out for model {model}: {openai_error_detail(exc)}"
     if isinstance(exc, APIStatusError):
-        return f"OpenAI {operation} failed with HTTP {exc.status_code}: {exc}"
+        return f"OpenAI {operation} failed with HTTP {openai_status_code(exc)} for model {model}: {openai_error_detail(exc)}"
     return f"OpenAI {operation} failed for model {model}: {exc}"
 
 
@@ -439,18 +491,28 @@ def openai_error_status(exc: Exception) -> int:
 
 
 def openai_raw_response(exc: Exception) -> str | None:
-    response = getattr(exc, "response", None)
-    text = getattr(response, "text", None)
-    return sanitize_log_text(text or str(exc))
+    return openai_response_body(exc)
 
 
 def raise_openai_error(exc: Exception, *, model: str, operation: str):
+    status_code_value = openai_status_code(exc)
+    error_detail = openai_error_detail(exc)
+    raw_response = openai_raw_response(exc)
+    print(
+        "[openai:error] "
+        f"operation={operation} "
+        f"model={model} "
+        f"type={exc.__class__.__name__} "
+        f"http_status={status_code_value} "
+        f"message={sanitize_log_text(error_detail, limit=2000)} "
+        f"raw_response={sanitize_log_text(raw_response, limit=4000)}"
+    )
     raise AIProviderError(
         openai_error_message(exc, operation, model),
         error_type=exc.__class__.__name__,
         model=model,
         status_code=openai_error_status(exc),
-        raw_response=openai_raw_response(exc),
+        raw_response=raw_response,
     ) from exc
 
 
