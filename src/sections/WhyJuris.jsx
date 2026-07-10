@@ -1,152 +1,59 @@
 import { useState } from "react";
+import { motion } from "framer-motion";
 
 const workflowSteps = [
-  {
-    key: "Upload",
-    beforeTitle: "Unstructured PDF",
-    beforeText: "Unstructured PDF, scattered clauses, manual review.",
-    highlight: "scattered clauses",
-    painPoint: "Review starts with searching, copying, and guessing where the important language lives.",
-    afterTitle: "Document processed",
-    afterText: "Document processed, text extracted, clauses indexed.",
-    insight: "Juris turns the file into a searchable legal workspace.",
-    risk: "Ready",
-    action: "Open the AI workspace and start review.",
-  },
-  {
-    key: "Extract",
-    beforeTitle: "Buried clauses",
-    beforeText: "Payment, termination, liability clauses buried inside pages.",
-    highlight: "buried inside pages",
-    painPoint: "Critical terms are mixed into dense paragraphs with no useful structure.",
-    afterTitle: "Clauses grouped",
-    afterText: "Key clauses grouped by category with source references.",
-    insight: "Payment, termination, liability, and dates become scan-ready.",
-    risk: "Indexed",
-    action: "Jump directly to source-backed clauses.",
-  },
-  {
-    key: "Analyze",
-    beforeTitle: "Hidden risk",
-    beforeText: "Risks hidden in legal language.",
-    highlight: "hidden in legal language",
-    painPoint: "Unusual terms can stay invisible until after approval.",
-    afterTitle: "Risk surfaced",
-    afterText: "High-risk terms surfaced with explanation and confidence.",
-    insight: "Juris explains why a term matters before anyone signs.",
-    risk: "High risk",
-    action: "Review the flagged clause before approval.",
-  },
-  {
-    key: "Ask",
-    beforeTitle: "Manual search",
-    beforeText: "User manually searches for answers.",
-    highlight: "manually searches",
-    painPoint: "Every question becomes another hunt through pages of legal text.",
-    afterTitle: "Clause-backed answer",
-    afterText:
-      "Ask: Can this renew automatically? Answer: Yes, clause 6 renews for 12 months unless cancelled.",
-    insight: "Plain-English answers stay grounded in the document.",
-    risk: "97% confidence",
-    action: "Ask follow-up questions without leaving the workspace.",
-  },
-  {
-    key: "Compare",
-    beforeTitle: "Version confusion",
-    beforeText: "Two versions are hard to compare manually.",
-    highlight: "hard to compare",
-    painPoint: "Small edits, removed duties, and changed deadlines are easy to miss.",
-    afterTitle: "Changes explained",
-    afterText: "Added, removed, and changed clauses shown clearly.",
-    insight: "Juris summarizes meaningful legal changes, not just text differences.",
-    risk: "Changed",
-    action: "Review the clauses with the biggest business impact.",
-  },
+  { key: "Upload", before: "Unstructured PDF. Scattered clauses. Manual review.", highlight: "scattered clauses", after: "Document processed. Text extracted. Clauses indexed.", signal: "READY", note: "A searchable legal workspace in seconds." },
+  { key: "Extract", before: "Payment, termination, and liability language buried inside pages.", highlight: "buried inside pages", after: "Key clauses grouped by category with source references.", signal: "12 FOUND", note: "Jump directly to the language that matters." },
+  { key: "Analyze", before: "Risk remains hidden inside technical legal language.", highlight: "hidden inside technical legal language", after: "High-impact terms surfaced with explanation and confidence.", signal: "RISK 82", note: "Review the highest-impact language first." },
+  { key: "Ask", before: "Every question becomes another manual search through the agreement.", highlight: "manual search", after: "Can this renew automatically? Yes — Clause 6 renews for 12 months.", signal: "97%", note: "Every answer stays attached to its source." },
+  { key: "Compare", before: "Small edits and removed duties disappear between document versions.", highlight: "disappear between document versions", after: "Added, removed, and changed clauses shown by legal impact.", signal: "3 CHANGES", note: "Understand change, not just different text." },
 ];
 
 export default function WhyJuris() {
   const [activeIndex, setActiveIndex] = useState(0);
-  const activeStep = workflowSteps[activeIndex];
+  const step = workflowSteps[activeIndex];
 
   return (
-    <section className="section-shell contrast-section why-juris-modern" id="why-juris">
-      <div className="section-heading why-juris-heading reveal">
-        <p className="eyebrow">WHY JURIS</p>
-        <h2>Turn dense legal documents into clear decisions.</h2>
-        <p>
-          Summaries, clauses, risks, comparisons, and answers — all in one AI legal workspace.
-        </p>
-      </div>
+    <section className="section-shell transformation-section" id="why-juris">
+      <div className="section-folio"><span>02</span><span>TRANSFORMATION</span></div>
+      <header className="transformation-heading">
+        <p className="accent-note">Before / After</p>
+        <h2>Dense language.<br />Clear decisions.</h2>
+        <p>Juris does not replace the document. It builds an intelligence layer directly on top of it.</p>
+      </header>
 
-      <div className="legal-story reveal delay-1">
-        <div className="legal-story-steps" aria-label="Legal Chaos to Juris Clarity workflow">
-          {workflowSteps.map((step, index) => (
-            <button
-              className={activeIndex === index ? "active" : ""}
-              key={step.key}
-              type="button"
-              onClick={() => setActiveIndex(index)}
-            >
-              <span>{String(index + 1).padStart(2, "0")}</span>
-              {step.key}
+      <div className="transformation-layout">
+        <nav className="transformation-nav" aria-label="Document transformation steps">
+          {workflowSteps.map((item, index) => (
+            <button className={index === activeIndex ? "active" : ""} key={item.key} onClick={() => setActiveIndex(index)} type="button">
+              <span>{String(index + 1).padStart(2, "0")}</span><b>{item.key}</b><i />
             </button>
           ))}
-        </div>
+        </nav>
 
-        <div className="legal-story-panels" key={activeStep.key}>
-          <article className="legal-story-card before-card">
-            <div className="story-card-label">
-              <div>
-                <span>Before Juris</span>
-                <b>Legal chaos</b>
-              </div>
-              <small>Hard to read. Easy to miss.</small>
+        <motion.div className="transformation-stage" key={step.key} initial={{ rotateX: -4, y: 30 }} animate={{ rotateX: 0, y: 0 }} transition={{ duration: 0.65 }}>
+          <article className="before-document">
+            <header><span>BEFORE JURIS</span><b>RAW / UNINDEXED</b></header>
+            <div className="legal-copy">
+              <small>SECTION 6.2</small>
+              <p>The party of the first part shall, notwithstanding any contrary provision herein, continue to comply with all operative covenants and <mark>{step.highlight}</mark> subject to renewal, fees, limitations, and notice requirements.</p>
+              <i /><i /><i />
             </div>
-            <div className="dense-doc-preview" aria-label="Dense legal text preview">
-              <p>
-                The party of the first part shall, notwithstanding any contrary provision herein,
-                continue to comply with all operative covenants and{" "}
-                <mark>{activeStep.highlight}</mark> subject to renewal, fees, limitations, and
-                notice requirements.
-              </p>
-              <i />
-              <i />
-              <i />
-            </div>
-            <div className="story-insight manual">
-              <span>{activeStep.beforeTitle}</span>
-              <p>{activeStep.beforeText}</p>
-              <small>{activeStep.painPoint}</small>
-            </div>
+            <p>{step.before}</p>
           </article>
 
-          <div className="story-arrow" aria-hidden="true">
-            <span>→</span>
-          </div>
+          <div className="transformation-axis" aria-hidden="true"><span>→</span><i /></div>
 
-          <article className="legal-story-card after-card">
-            <div className="story-card-label">
-              <div>
-                <span>After Juris</span>
-                <b>AI clarity</b>
-              </div>
-              <small>Clear insights. Zero guesswork.</small>
+          <article className="after-intelligence">
+            <header><span>AFTER JURIS</span><b>{step.signal}</b></header>
+            <div className="intelligence-output">
+              <small>EXTRACTED INTELLIGENCE</small>
+              <h3>{step.key}</h3>
+              <p>{step.after}</p>
             </div>
-            <div className="ai-output-preview">
-              <div>
-                <span>Extracted insight</span>
-                <strong>{activeStep.afterTitle}</strong>
-                <p>{activeStep.afterText}</p>
-              </div>
-              <div className="risk-badge">{activeStep.risk}</div>
-            </div>
-            <div className="story-insight clarity">
-              <span>Recommended action</span>
-              <p>{activeStep.insight}</p>
-              <small>{activeStep.action}</small>
-            </div>
+            <footer><span>RECOMMENDED FOCUS</span><p>{step.note}</p></footer>
           </article>
-        </div>
+        </motion.div>
       </div>
     </section>
   );

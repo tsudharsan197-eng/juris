@@ -1,126 +1,85 @@
 import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Bot, FileDiff, FileText, ScanSearch, ShieldAlert } from "lucide-react";
 
-const clauseRows = [
-  {
-    label: "Confidentiality",
-    detail: "Mutual confidentiality obligations found with source references attached.",
-  },
-  {
-    label: "Termination",
-    detail: "30 day written notice required before early termination.",
-  },
-  {
-    label: "Governing Law",
-    detail: "Governing law detected and linked to the dispute resolution section.",
-  },
-  {
-    label: "Payment Terms",
-    detail: "Milestone payments and late-fee language extracted for review.",
-  },
+const modes = [
+  { id: "document", label: "Document", Icon: FileText, status: "38 pages indexed", title: "Master Service Agreement" },
+  { id: "clauses", label: "Clauses", Icon: ScanSearch, status: "12 clauses extracted", title: "Termination & renewal" },
+  { id: "risk", label: "Risk", Icon: ShieldAlert, status: "3 signals require review", title: "Risk priority 82" },
+  { id: "ask", label: "Ask", Icon: Bot, status: "97% confidence", title: "Source-backed answer" },
+  { id: "compare", label: "Compare", Icon: FileDiff, status: "3 material changes", title: "Version 04 → 05" },
 ];
 
+const clauseRows = ["Confidentiality", "Termination", "Governing Law", "Payment Terms"];
+
 export default function ProductPreview() {
-  const [selectedClause, setSelectedClause] = useState(clauseRows[1]);
+  const [activeMode, setActiveMode] = useState(modes[1]);
+  const [selectedClause, setSelectedClause] = useState("Termination");
 
   return (
-    <section className="section-shell product-section">
-      <div className="section-heading product-heading reveal">
-        <p className="eyebrow">Product preview</p>
-        <h2>One workspace for legal intelligence.</h2>
-      </div>
-      <div className="product-grid">
-        <article className="product-card upload-card reveal">
-          <div className="product-card-top">
-            <span>Document Upload</span>
-            <em>Processed</em>
-          </div>
-          <h3>Master Service Agreement.pdf</h3>
-          <div className="upload-bar" aria-label="Upload progress">
-            <span />
-          </div>
-          <p>Scanning clauses...</p>
-          <small>38 pages indexed</small>
-        </article>
+    <section className="section-shell product-section" id="product-workspace">
+      <div className="section-folio"><span>07</span><span>PRODUCT SYSTEM</span></div>
+      <header className="product-editorial-heading">
+        <p className="accent-note">The workspace.</p>
+        <h2>Legal work,<br />reconstructed.</h2>
+        <p>A working interface for reading, questioning, and comparing legal documents with precision.</p>
+      </header>
 
-        <article className="product-card summary-card reveal delay-1">
-          <div className="product-card-top">
-            <span>AI Summary</span>
-            <em>Sources attached</em>
-          </div>
-          <p>
-            This agreement defines service levels, payment milestones, renewal terms, data
-            handling obligations, and termination rights.
-          </p>
-          <small>Confidence 97%</small>
-        </article>
+      <div className="software-frame">
+        <header className="software-bar">
+          <div><span>JURIS</span><i>DOCUMENT / 001</i></div>
+          <strong>Master Service Agreement.pdf</strong>
+          <small>PROCESSED · 14:32:08</small>
+        </header>
 
-        <article className="product-card score-card reveal delay-2">
-          <div className="product-card-top">
-            <span>Risk Score</span>
-            <em className="danger">High risk</em>
-          </div>
-          <strong aria-label="Risk score 82">82</strong>
-          <p>Indemnity, renewal, and early termination fee require attention.</p>
-        </article>
+        <aside className="software-nav" aria-label="Product demo modes">
+          <span>TOOLS</span>
+          {modes.map((mode, index) => (
+            <button className={activeMode.id === mode.id ? "active" : ""} key={mode.id} onClick={() => setActiveMode(mode)} type="button">
+              <i>{String(index + 1).padStart(2, "0")}</i><mode.Icon size={16} strokeWidth={1.5} /><b>{mode.label}</b>
+            </button>
+          ))}
+          <div className="software-user"><i>TS</i><span>Tharun<br /><small>OWNER</small></span></div>
+        </aside>
 
-        <article className="product-card clauses-card reveal">
-          <div className="product-card-top">
-            <span>Clause Extraction</span>
-            <em>4 clauses found</em>
-          </div>
-          <div className="clause-row-list">
-            {clauseRows.map((clause) => (
-              <button
-                className={selectedClause.label === clause.label ? "selected" : ""}
-                key={clause.label}
-                type="button"
-                onClick={() => setSelectedClause(clause)}
-              >
-                {clause.label}
+        <main className="software-document">
+          <div className="document-toolbar"><span>PAGE 06 / 38</span><span>112%</span></div>
+          <article className="document-sheet">
+            <header><span>6.</span><h3>TERM AND TERMINATION</h3></header>
+            <p>This Agreement shall commence on the Effective Date and shall continue for an initial period of twelve months unless terminated earlier in accordance with this section.</p>
+            <p className="document-highlight">Either party may terminate this Agreement upon thirty (30) days prior written notice. The Agreement will renew automatically for successive twelve-month periods.</p>
+            <p>Termination shall not affect rights, remedies, obligations or liabilities accrued before the termination date.</p>
+            <div className="source-marker">SOURCE 06.2</div>
+          </article>
+        </main>
+
+        <aside className="software-inspector">
+          <AnimatePresence mode="wait">
+            <motion.div key={activeMode.id} initial={{ clipPath: "inset(0 0 100% 0)", y: 22 }} animate={{ clipPath: "inset(0 0 0% 0)", y: 0 }} exit={{ clipPath: "inset(0 0 100% 0)" }}>
+              <span className="inspector-label">{activeMode.label.toUpperCase()} INTELLIGENCE</span>
+              <h3>{activeMode.title}</h3>
+              <p>{activeMode.status}</p>
+            </motion.div>
+          </AnimatePresence>
+
+          <div className="inspector-meter"><span>CONFIDENCE</span><strong>97%</strong><i><b /></i></div>
+
+          <div className="inspector-clauses">
+            <span>CLAUSE INDEX</span>
+            {clauseRows.map((clause, index) => (
+              <button className={selectedClause === clause ? "active" : ""} key={clause} onClick={() => setSelectedClause(clause)} type="button">
+                <i>{String(index + 1).padStart(2, "0")}</i><span>{clause}</span><b>{index === 1 ? "HIGH" : "FOUND"}</b>
               </button>
             ))}
           </div>
-          <div className="clause-detail-preview">
-            <span>{selectedClause.label}</span>
-            <p>{selectedClause.detail}</p>
-          </div>
-        </article>
 
-        <article className="product-card compare-card reveal delay-1">
-          <div className="product-card-top">
-            <span>Contract Comparison</span>
-            <em>3 changes</em>
+          <div className="inspector-answer">
+            <span>ASK JURIS</span>
+            <p>Can this renew automatically?</p>
+            <strong>Yes. Clause 6 renews for twelve months unless cancelled with 30 days written notice.</strong>
+            <small>SOURCE 06.2 ATTACHED</small>
           </div>
-          <div className="diff add">+ 30 day written notice</div>
-          <div className="diff remove">- automatic 24 month renewal</div>
-          <div className="diff edit">~ liability capped at fees paid</div>
-        </article>
-
-        <article className="product-card chat-card reveal delay-2">
-          <div className="product-card-top">
-            <span>AI Chat</span>
-            <em>Live answer</em>
-          </div>
-          <div className="chat-row user">Can this agreement be terminated early?</div>
-          <div className="chat-row ai">
-            Yes. Clause 9 allows termination with 30 days written notice. Clause 11 includes an
-            early termination fee.
-          </div>
-        </article>
-
-        <article className="product-card analytics-card reveal">
-          <div className="product-card-top">
-            <span>Analytics Dashboard</span>
-            <em>Live</em>
-          </div>
-          <div className="bars" aria-label="Legal analytics chart">
-            <i style={{ "--bar-height": "44%" }} />
-            <i style={{ "--bar-height": "72%" }} />
-            <i style={{ "--bar-height": "54%" }} />
-            <i style={{ "--bar-height": "88%" }} />
-            <i style={{ "--bar-height": "64%" }} />
-          </div>
-        </article>
+        </aside>
       </div>
     </section>
   );

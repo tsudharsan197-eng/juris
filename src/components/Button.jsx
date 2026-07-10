@@ -1,4 +1,14 @@
 import { Link } from "react-router-dom";
+import { ArrowUpRight } from "lucide-react";
+
+function ButtonContent({ children, variant }) {
+  return (
+    <>
+      <span>{children}</span>
+      {variant === "primary" && <ArrowUpRight aria-hidden="true" size={16} strokeWidth={1.8} />}
+    </>
+  );
+}
 
 export default function Button({ children, to, href, variant = "primary", className = "", ...props }) {
   const classes = `btn btn-${variant} ${className}`.trim();
@@ -6,7 +16,7 @@ export default function Button({ children, to, href, variant = "primary", classN
   if (to) {
     return (
       <Link className={classes} to={to} {...props}>
-        {children}
+        <ButtonContent variant={variant}>{children}</ButtonContent>
       </Link>
     );
   }
@@ -14,14 +24,14 @@ export default function Button({ children, to, href, variant = "primary", classN
   if (href) {
     return (
       <a className={classes} href={href} {...props}>
-        {children}
+        <ButtonContent variant={variant}>{children}</ButtonContent>
       </a>
     );
   }
 
   return (
     <button className={classes} {...props}>
-      {children}
+      <ButtonContent variant={variant}>{children}</ButtonContent>
     </button>
   );
 }

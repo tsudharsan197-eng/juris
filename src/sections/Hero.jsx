@@ -1,5 +1,10 @@
+import { lazy, Suspense } from "react";
+import { motion } from "framer-motion";
+import { ArrowDown, ShieldCheck } from "lucide-react";
 import Button from "../components/Button.jsx";
 import { useAuth } from "../components/AuthProvider.jsx";
+
+const HeroScene = lazy(() => import("../components/HeroScene"));
 
 export default function Hero() {
   const { user, isSignedIn } = useAuth();
@@ -7,113 +12,56 @@ export default function Hero() {
 
   return (
     <section className="hero section-shell">
-      <div className="hero-inner">
-        <div className="hero-copy reveal">
-          {isSignedIn && (
-            <div className="hero-greeting" aria-label={`Welcome back, ${userName}`}>
-              <span>Welcome back</span>
-              <strong>{userName}</strong>
-            </div>
-          )}
-          <p className="eyebrow">AI legal intelligence workspace</p>
-          <h1 className="hero-title">
-            Legal documents,
-            <br />
-            decoded by AI.
-          </h1>
-          <p className="hero-subtext">
-            Upload contracts, extract clauses, detect risks, compare versions, and ask legal
-            questions in plain English.
-          </p>
+      <Suspense fallback={<div className="hero-scene-fallback" aria-hidden="true" />}>
+        <HeroScene />
+      </Suspense>
+
+      <div className="hero-rule hero-rule-top" aria-hidden="true">
+        <span>JURIS / LEGAL INTELLIGENCE</span>
+        <span>EST. 2026</span>
+        <span>37.7749 N</span>
+      </div>
+
+      <motion.div className="hero-lockup" initial="hidden" animate="visible" variants={lockup}>
+        {isSignedIn && (
+          <motion.div className="hero-greeting" variants={lineReveal}>
+            <span>Welcome back</span><strong>{userName}</strong>
+          </motion.div>
+        )}
+        <motion.p className="hero-kicker" variants={lineReveal}>From documents to decisions.</motion.p>
+        <h1 className="hero-title">
+          <motion.span variants={lineReveal}>Legal documents</motion.span>
+          <motion.span variants={lineReveal}>become <em>legal</em></motion.span>
+          <motion.span className="hero-title-last" variants={lineReveal}>intelligence.</motion.span>
+        </h1>
+      </motion.div>
+
+      <div className="hero-bottom-grid">
+        <motion.div className="hero-intro" initial={{ clipPath: "inset(0 100% 0 0)" }} animate={{ clipPath: "inset(0 0% 0 0)" }} transition={{ delay: 0.65, duration: 1.1 }}>
+          <p>Upload contracts. Find clauses. Surface risk. Compare versions. Ask precise questions and get source-grounded answers.</p>
           <div className="hero-actions">
-            <Button to={isSignedIn ? "/upload-document" : "/create-account"}>
-              {isSignedIn ? "Upload Documents" : "Create Account"}
-            </Button>
-            <Button href="#how-it-works" variant="secondary">
-              See How It Works
-            </Button>
+            <Button to={isSignedIn ? "/upload-document" : "/create-account"}>{isSignedIn ? "Upload Documents" : "Create Account"}</Button>
+            <Button href="#what-is-juris" variant="secondary">Explore Juris</Button>
           </div>
-        </div>
+        </motion.div>
 
-        <div
-          className="hero-preview ai-console reveal delay-1"
-          aria-label="Juris AI legal analysis console preview"
-        >
-          <div className="grain" />
-          <div className="console-glow" aria-hidden="true" />
-          <div className="console-scan" aria-hidden="true" />
-
-          <div className="console-header">
-            <div>
-              <span>Document Intelligence</span>
-              <strong>Contract scanned</strong>
-            </div>
-            <div className="console-status">
-              <i />
-              Live analysis
-            </div>
-          </div>
-
-          <div className="console-document">
-            <div className="doc-chip active">Termination clause detected</div>
-            <div className="console-lines">
-              <span />
-              <span />
-              <span />
-              <span />
-            </div>
-            <div className="source-dots" aria-label="Source confidence indicators">
-              <i />
-              <i />
-              <i />
-            </div>
-          </div>
-
-          <div className="console-grid">
-            <section className="console-panel clause-panel">
-              <div className="panel-topline">
-                <span>Clause Extraction</span>
-                <b>12 clauses extracted</b>
-              </div>
-              <div className="clause-chip-row">
-                <span>Payment</span>
-                <span>Renewal</span>
-                <span>Liability</span>
-              </div>
-              <div className="clause-rows">
-                <p>Governing law identified</p>
-                <p>Renewal window captured</p>
-                <p>Notice period matched</p>
-              </div>
-            </section>
-
-            <section className="console-panel risk-signal">
-              <span>Risk Signal</span>
-              <strong className="risk-score" aria-label="Risk score 82">82</strong>
-              <p>Early renewal risk</p>
-            </section>
-          </div>
-
-          <div className="console-footer-grid">
-            <section className="console-panel chat-console">
-              <span>Ask Juris</span>
-              <div className="console-chat-row user">Can this renew automatically?</div>
-              <div className="console-chat-row ai">Yes. Clause 6 renews for 12 months unless cancelled.</div>
-            </section>
-
-            <section className="console-panel confidence-panel">
-              <span>Confidence</span>
-              <strong>97%</strong>
-              <div className="confidence-track">
-                <i />
-              </div>
-            </section>
-          </div>
+        <div className="hero-specs" aria-label="Juris product capabilities">
+          <div><span>01</span><strong>Private storage</strong><small><ShieldCheck size={13} /> User-scoped R2</small></div>
+          <div><span>02</span><strong>Source-backed</strong><small>Chunk-level citations</small></div>
+          <div><span>03</span><strong>AI analysis</strong><small>Clauses / Risk / Compare</small></div>
         </div>
       </div>
+
+      <a className="hero-scroll-cue" href="#what-is-juris"><ArrowDown size={15} /> Index / 01</a>
     </section>
   );
 }
+
+const lockup = { hidden: {}, visible: { transition: { staggerChildren: 0.13, delayChildren: 0.12 } } };
+const lineReveal = {
+  hidden: { clipPath: "inset(0 0 100% 0)", y: 56, rotateX: -8 },
+  visible: { clipPath: "inset(0 0 0% 0)", y: 0, rotateX: 0, transition: { duration: 1.05, ease: [0.22, 1, 0.36, 1] } },
+};
 
 function displayName(user) {
   const metadata = user?.user_metadata || {};

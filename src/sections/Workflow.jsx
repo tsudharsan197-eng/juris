@@ -1,3 +1,7 @@
+import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import MotionReveal from "../components/MotionReveal";
+
 const steps = [
   ["Upload", "Securely upload contracts, agreements, policies, or legal PDFs."],
   ["Extract", "Juris extracts text, metadata, parties, dates, headings, and clauses."],
@@ -8,25 +12,40 @@ const steps = [
 ];
 
 export default function Workflow() {
+  const [activeStep, setActiveStep] = useState(0);
+
   return (
     <section className="section-shell workflow-section" id="how-it-works">
-      <div className="section-heading reveal">
-        <p className="eyebrow">How Juris works</p>
-        <h2>From document to decision.</h2>
-        <p>
-          Juris turns complex legal documents into actionable intelligence through a simple AI
-          workflow.
-        </p>
-      </div>
+      <div className="section-folio"><span>05</span><span>PROCESS</span></div>
+      <MotionReveal className="section-heading workflow-heading">
+        <p className="accent-note">How Juris works.</p>
+        <h2>From document<br />to decision.</h2>
+        <p>Juris turns complex legal documents into actionable intelligence through a simple AI workflow.</p>
+      </MotionReveal>
       <div className="timeline">
         {steps.map(([title, copy], index) => (
-          <article className={`timeline-step reveal delay-${index % 3}`} key={title}>
+          <motion.button
+            className={`timeline-step ${activeStep === index ? "active" : ""}`}
+            key={title}
+            type="button"
+            onClick={() => setActiveStep(index)}
+            whileHover={{ y: -6 }}
+            layout
+          >
             <span className="step-number">{String(index + 1).padStart(2, "0")}</span>
             <h3>{title}</h3>
-            <p>{copy}</p>
-          </article>
+            <AnimatePresence initial={false}>
+              {activeStep === index && (
+                <motion.p initial={{ clipPath: "inset(0 0 100% 0)", height: 0 }} animate={{ clipPath: "inset(0 0 0% 0)", height: "auto" }} exit={{ clipPath: "inset(0 0 100% 0)", height: 0 }}>
+                  {copy}
+                </motion.p>
+              )}
+            </AnimatePresence>
+            <span className="timeline-state">{activeStep === index ? "Active" : "Explore"}</span>
+          </motion.button>
         ))}
       </div>
+      <div className="timeline-progress" aria-hidden="true"><motion.i animate={{ width: `${((activeStep + 1) / steps.length) * 100}%` }} /></div>
     </section>
   );
 }

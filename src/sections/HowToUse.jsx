@@ -1,41 +1,35 @@
-import Card from "../components/Card.jsx";
+import { motion } from "framer-motion";
+import MotionReveal from "../components/MotionReveal";
 
 const steps = [
-  [
-    "Create an account",
-    "Sign up or sign in securely with Supabase authentication.",
-  ],
-  [
-    "Upload your document",
-    "Choose a PDF, DOC, or DOCX file up to 25MB.",
-  ],
-  [
-    "Juris stores it securely",
-    "Your file is sent to the backend, verified, and stored privately in Cloudflare R2.",
-  ],
-  [
-    "View your documents",
-    "Open the Documents page to view, download, and manage your uploaded files.",
-  ],
+  ["Create an account", "Sign up or sign in securely with Supabase authentication."],
+  ["Upload your document", "Choose a PDF, DOC, or DOCX file up to 25MB."],
+  ["Juris stores it securely", "Your file is verified by the backend and stored privately in Cloudflare R2."],
+  ["Open your workspace", "View, download, manage, and analyze every processed document."],
 ];
 
 export default function HowToUse() {
   return (
-    <section className="section-shell how-use-section" id="how-to-use">
-      <div className="section-heading reveal">
-        <p className="eyebrow">How to Use</p>
-        <h2>How to Use Juris</h2>
-        <p>Upload, review, and manage legal documents securely in minutes.</p>
-      </div>
-      <div className="how-use-grid">
+    <section className="section-shell use-sequence" id="how-to-use">
+      <div className="section-folio"><span>04</span><span>GETTING STARTED</span></div>
+      <MotionReveal className="sequence-heading">
+        <p className="accent-note">Four deliberate steps.</p>
+        <h2>Secure in.<br />Intelligence out.</h2>
+      </MotionReveal>
+      <div className="sequence-list">
         {steps.map(([title, copy], index) => (
-          <Card key={title} className={`how-use-card reveal delay-${index % 3}`}>
-            <span className="how-use-number">{String(index + 1).padStart(2, "0")}</span>
-            <div>
-              <h3>{title}</h3>
-              <p>{copy}</p>
-            </div>
-          </Card>
+          <motion.article
+            className="sequence-step"
+            key={title}
+            initial={{ x: index % 2 ? 80 : -80, rotateY: index % 2 ? -4 : 4 }}
+            whileInView={{ x: 0, rotateY: 0 }}
+            viewport={{ once: true, amount: 0.5 }}
+            transition={{ duration: 0.9 }}
+          >
+            <strong>{String(index + 1).padStart(2, "0")}</strong>
+            <div><h3>{title}</h3><p>{copy}</p></div>
+            <span>{index === steps.length - 1 ? "READY" : "NEXT"}</span>
+          </motion.article>
         ))}
       </div>
     </section>
