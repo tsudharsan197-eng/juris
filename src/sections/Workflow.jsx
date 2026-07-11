@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import MotionReveal from "../components/MotionReveal";
 
@@ -14,9 +14,15 @@ const steps = [
 export default function Workflow() {
   const [activeStep, setActiveStep] = useState(0);
 
+  useEffect(() => {
+    const handleScrollStep = (event) => setActiveStep(event.detail);
+    window.addEventListener("juris:workflow-step", handleScrollStep);
+    return () => window.removeEventListener("juris:workflow-step", handleScrollStep);
+  }, []);
+
   return (
     <section className="section-shell workflow-section" id="how-it-works">
-      <div className="section-folio"><span>05</span><span>PROCESS</span></div>
+      <div className="section-folio"><span>04</span><span>PROCESS</span></div>
       <MotionReveal className="section-heading workflow-heading">
         <p className="accent-note">How Juris works.</p>
         <h2>From document<br />to decision.</h2>

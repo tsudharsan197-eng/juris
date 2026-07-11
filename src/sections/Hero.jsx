@@ -1,10 +1,8 @@
-import { lazy, Suspense } from "react";
 import { motion } from "framer-motion";
 import { ArrowDown, ShieldCheck } from "lucide-react";
 import Button from "../components/Button.jsx";
 import { useAuth } from "../components/AuthProvider.jsx";
-
-const HeroScene = lazy(() => import("../components/HeroScene"));
+import HeroArchive from "../components/HeroArchive";
 
 export default function Hero() {
   const { user, isSignedIn } = useAuth();
@@ -12,9 +10,9 @@ export default function Hero() {
 
   return (
     <section className="hero section-shell">
-      <Suspense fallback={<div className="hero-scene-fallback" aria-hidden="true" />}>
-        <HeroScene />
-      </Suspense>
+      <div className="hero-scene" aria-hidden="true">
+        <HeroArchive />
+      </div>
 
       <div className="hero-rule hero-rule-top" aria-hidden="true">
         <span>JURIS / LEGAL INTELLIGENCE</span>
@@ -29,11 +27,18 @@ export default function Hero() {
           </motion.div>
         )}
         <motion.p className="hero-kicker" variants={lineReveal}>From documents to decisions.</motion.p>
-        <h1 className="hero-title">
-          <motion.span variants={lineReveal}>Legal documents</motion.span>
-          <motion.span variants={lineReveal}>become <em>legal</em></motion.span>
-          <motion.span className="hero-title-last" variants={lineReveal}>intelligence.</motion.span>
-        </h1>
+        <div className="hero-title-stage">
+          <h1 className="hero-title hero-title-back">
+            <motion.span variants={lineReveal}>Legal documents</motion.span>
+            <motion.span variants={lineReveal}>become <em>legal</em></motion.span>
+            <motion.span className="hero-title-last" variants={lineReveal}>intelligence.</motion.span>
+          </h1>
+          <h1 className="hero-title hero-title-foreground" aria-hidden="true">
+            <span>Legal documents</span>
+            <span>become <em>legal</em></span>
+            <span className="hero-title-last">intelligence.</span>
+          </h1>
+        </div>
       </motion.div>
 
       <div className="hero-bottom-grid">

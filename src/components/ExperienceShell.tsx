@@ -28,6 +28,7 @@ export default function ExperienceShell({ children }: ExperienceShellProps) {
     };
 
     lenisRef.current = lenis;
+    lenis.on("scroll", () => window.dispatchEvent(new Event("juris:lenis-scroll")));
     frame = window.requestAnimationFrame(update);
 
     return () => {

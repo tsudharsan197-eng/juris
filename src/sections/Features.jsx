@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import { Bot, ChartNoAxesCombined, FileDiff, Radar, Search, ShieldAlert } from "lucide-react";
 import MotionReveal from "../components/MotionReveal";
 
@@ -22,20 +21,15 @@ export default function Features() {
       </MotionReveal>
       <div className="feature-list">
         {features.map(([title, copy, Icon], index) => (
-          <motion.article
+          <article
             className="feature-row"
             key={title}
-            initial={{ clipPath: "inset(0 100% 0 0)", x: 36 }}
-            whileInView={{ clipPath: "inset(0 0% 0 0)", x: 0 }}
-            viewport={{ once: true, amount: 0.4 }}
-            transition={{ delay: index * 0.06 }}
-            whileHover={{ x: 10 }}
           >
             <span className="feature-row-number">0{index + 1}</span>
             <div className="feature-symbol"><Icon size={21} strokeWidth={1.5} /></div>
             <div><h3>{title}</h3><p>{copy}</p></div>
             <i aria-hidden="true">↗</i>
-          </motion.article>
+          </article>
         ))}
       </div>
     </section>

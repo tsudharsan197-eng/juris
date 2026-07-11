@@ -32,7 +32,7 @@ function Counter({ target, suffix }) {
 export default function Advantages() {
   return (
     <section className="section-shell evidence-section" id="advantages">
-      <div className="section-folio"><span>06</span><span>EVIDENCE</span></div>
+      <div className="section-folio"><span>05</span><span>EVIDENCE</span></div>
       <div className="evidence-heading">
         <p className="accent-note">Designed for attention.</p>
         <h2>More certainty<br />per minute.</h2>
