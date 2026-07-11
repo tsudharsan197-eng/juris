@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { ArrowRight } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../components/AuthProvider.jsx";
 import Button from "../components/Button.jsx";
 import Navbar from "../components/Navbar.jsx";
@@ -113,55 +115,88 @@ export default function Documents() {
           )}
 
           <div className="documents-grid">
-            {documents.map((document) => (
-              <article className="document-row" key={document.id}>
-                <div>
-                  <span>{document.status}</span>
-                  <h2>{document.title}</h2>
-                  <p>{document.file_name}</p>
-                </div>
-                <div className="document-actions">
-                  <div>
-                    <strong>{(document.file_size / (1024 * 1024)).toFixed(2)} MB</strong>
-                    <span>{document.mime_type}</span>
-                  </div>
-                  <div className="document-action-buttons">
-                    {document.status === "processed" ? (
-                      <Button
-                        to={`/documents/${document.id}/workspace`}
-                        variant="secondary"
-                        className="document-processed-button"
-                        aria-label={`Open AI workspace for ${document.title}`}
-                      >
-                        Document Processed
-                      </Button>
+            {documents.map((document) => {
+              const isProcessed = document.status === "processed";
+
+              return (
+                <article
+                  className={`document-row${isProcessed ? " document-row-processed" : ""}`}
+                  key={document.id}
+                >
+                  {isProcessed && (
+                    <Link
+                      className="document-row-link"
+                      to={`/documents/${document.id}/workspace`}
+                      aria-label={`Open ${document.title} in the AI workspace`}
+                      onKeyDown={(event) => {
+                        if (event.key !== " ") return;
+                        event.preventDefault();
+                        event.currentTarget.click();
+                      }}
+                    />
+                  )}
+                  <div className="document-identity">
+                    {isProcessed ? (
+                      <span className="document-ready-label"><i aria-hidden="true" /> Processed / Ready</span>
                     ) : (
-                      <span className={`document-status-pill status-${document.status}`}>
-                        {documentStatusLabel(document.status)}
-                      </span>
+                      <span>{document.status}</span>
                     )}
-                    <button
-                      className="document-action-button"
-                      type="button"
-                      onClick={() => handleDownload(document)}
-                      disabled={downloadingId === document.id}
-                      aria-label={`Download ${document.title}`}
-                    >
-                      {downloadingId === document.id ? "Opening..." : "Download"}
-                    </button>
-                    <button
-                      className="document-action-button document-delete"
-                      type="button"
-                      onClick={() => handleDelete(document)}
-                      disabled={deletingIds.has(document.id)}
-                      aria-label={`Delete ${document.title}`}
-                    >
-                      {deletingIds.has(document.id) ? "Deleting..." : "Delete"}
-                    </button>
+                    <h2>{document.title}</h2>
+                    <p>{document.file_name}</p>
                   </div>
-                </div>
-              </article>
-            ))}
+                  <div className="document-actions">
+                    <div className="document-metadata">
+                      <strong>{(document.file_size / (1024 * 1024)).toFixed(2)} MB</strong>
+                      <span>{document.mime_type}</span>
+                    </div>
+                    <div className="document-action-buttons">
+                      {isProcessed ? (
+                        <div className="document-primary-block">
+                          <span>Review clauses, risks, and summaries.</span>
+                          <Link
+                            className="document-workspace-action"
+                            to={`/documents/${document.id}/workspace`}
+                            onClick={(event) => event.stopPropagation()}
+                            aria-label={`Open AI workspace for ${document.title}`}
+                          >
+                            <span>Open Workspace</span>
+                            <ArrowRight aria-hidden="true" size={17} strokeWidth={1.8} />
+                          </Link>
+                        </div>
+                      ) : (
+                        <span className={`document-status-pill status-${document.status}`}>
+                          {documentStatusLabel(document.status)}
+                        </span>
+                      )}
+                      <button
+                        className="document-action-button"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDownload(document);
+                        }}
+                        disabled={downloadingId === document.id}
+                        aria-label={`Download ${document.title}`}
+                      >
+                        {downloadingId === document.id ? "Opening..." : "Download"}
+                      </button>
+                      <button
+                        className="document-action-button document-delete"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDelete(document);
+                        }}
+                        disabled={deletingIds.has(document.id)}
+                        aria-label={`Delete ${document.title}`}
+                      >
+                        {deletingIds.has(document.id) ? "Deleting..." : "Delete"}
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </section>
       </main>

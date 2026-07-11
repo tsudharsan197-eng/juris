@@ -1,4 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Download,
+  FileSearch,
+  FileText,
+  GitCompare,
+  Layers,
+  MessageSquare,
+  Shield,
+} from "lucide-react";
 import { useParams } from "react-router-dom";
 import { useAuth } from "../components/AuthProvider.jsx";
 import Button from "../components/Button.jsx";
@@ -15,12 +28,12 @@ import {
 } from "../lib/documentsApi.js";
 
 const WORKSPACE_TABS = [
-  { id: "ask", label: "Chat", detail: "Chat with your legal document", enabled: true },
-  { id: "intelligence", label: "Document Intelligence", detail: "Flagship legal intelligence dashboard", enabled: true },
-  { id: "summary", label: "Executive Summary", detail: "Generate a concise legal summary", enabled: true },
-  { id: "clauses", label: "Clause Intelligence", detail: "Extract and explain key legal clauses", enabled: true },
-  { id: "risks", label: "Risk Analysis", detail: "Identify potential legal risks and unusual terms", enabled: true },
-  { id: "compare", label: "Compare", detail: "Compare documents", enabled: true },
+  { id: "ask", label: "Chat", detail: "Ask grounded questions", icon: MessageSquare, enabled: true },
+  { id: "intelligence", label: "Document Intelligence", detail: "Structured document overview", icon: Layers, enabled: true },
+  { id: "summary", label: "Executive Summary", detail: "Decision-ready brief", icon: FileText, enabled: true },
+  { id: "clauses", label: "Clause Intelligence", detail: "Obligations and key terms", icon: FileSearch, enabled: true },
+  { id: "risks", label: "Risk Analysis", detail: "Legal and commercial exposure", icon: Shield, enabled: true },
+  { id: "compare", label: "Compare", detail: "Review version changes", icon: GitCompare, enabled: true },
 ];
 
 const AI_LOADING_DELAY_MS = 180;
@@ -69,6 +82,7 @@ export default function DocumentWorkspace() {
   const [status, setStatus] = useState("loading");
   const [message, setMessage] = useState("");
   const [activeTab, setActiveTab] = useState("ask");
+  const [tabDirection, setTabDirection] = useState(1);
   const [question, setQuestion] = useState("");
   const [chat, setChat] = useState([]);
   const [askStatus, setAskStatus] = useState("idle");
@@ -96,6 +110,9 @@ export default function DocumentWorkspace() {
   const riskRequestRef = useRef(null);
   const compareRequestRef = useRef(null);
   const documentsRequestedRef = useRef(false);
+  const workspacePanelRef = useRef(null);
+  const toolScrollPositionsRef = useRef(new Map());
+  const prefersReducedMotion = useReducedMotion();
 
   useEffect(() => {
     if (authLoading) {
@@ -135,6 +152,11 @@ export default function DocumentWorkspace() {
   );
 
   const readableFileName = displayFileName(document?.file_name || document?.title);
+  const documentNumber = Math.max(0, documents.findIndex((item) => item.id === documentId)) + 1;
+  const documentSize = document?.file_size
+    ? `${(document.file_size / (1024 * 1024)).toFixed(2)} MB`
+    : "SIZE / NOT SPECIFIED";
+  const documentType = document?.mime_type || "TYPE / NOT SPECIFIED";
 
   useEffect(() => {
     setSummary("");
@@ -153,6 +175,7 @@ export default function DocumentWorkspace() {
     setCompareStatus("idle");
     setCompareError("");
     setCompareTargetId("");
+    toolScrollPositionsRef.current.clear();
     abortRequest(summaryRequestRef);
     abortRequest(intelligenceRequestRef);
     abortRequest(clausesRequestRef);
@@ -174,6 +197,16 @@ export default function DocumentWorkspace() {
     setCompareError("");
     abortRequest(compareRequestRef);
   }, [compareTargetId]);
+
+  useLayoutEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const panel = workspacePanelRef.current;
+      if (!panel) return;
+      panel.scrollTop = activeTab === "ask" ? 0 : toolScrollPositionsRef.current.get(activeTab) || 0;
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeTab]);
 
   async function loadSummary() {
     if (!document || summary || isAiLoading(summaryStatus) || summaryStatus === "ready" || summaryRequestRef.current) return;
@@ -364,12 +397,24 @@ export default function DocumentWorkspace() {
   }
 
   function handleRecommendedQuestion(nextQuestion) {
-    setActiveTab("ask");
+    handleTabSelect(WORKSPACE_TABS[0]);
     askQuestion(nextQuestion);
   }
 
   function handleTabSelect(tab) {
     if (!tab.enabled) return;
+
+    const currentIndex = WORKSPACE_TABS.findIndex((item) => item.id === activeTab);
+    const nextIndex = WORKSPACE_TABS.findIndex((item) => item.id === tab.id);
+    const panel = workspacePanelRef.current;
+
+    if (panel && activeTab !== "ask") {
+      toolScrollPositionsRef.current.set(activeTab, panel.scrollTop);
+    }
+
+    if (nextIndex !== currentIndex) {
+      setTabDirection(nextIndex > currentIndex ? 1 : -1);
+    }
     setActiveTab(tab.id);
     if (tab.id === "summary") void loadSummary();
     if (tab.id === "intelligence") void loadIntelligence();
@@ -377,37 +422,70 @@ export default function DocumentWorkspace() {
     if (tab.id === "risks") void loadRiskAnalysis();
   }
 
+  function toolState(tabId) {
+    const states = {
+      intelligence: intelligenceStatus,
+      summary: summaryStatus,
+      clauses: clausesStatus,
+      risks: riskStatus,
+      compare: compareStatus,
+    };
+    if (tabId === "ask") return "Ready";
+    if (tabId === "compare" && states.compare === "idle") {
+      return documents.some((item) => item.id !== documentId && item.status === "processed") ? "Select file" : "Need file";
+    }
+    const value = states[tabId];
+    if (isAiLoading(value)) return "Analyzing";
+    if (value === "ready") return "Ready";
+    if (value === "error") return "Retry";
+    return "Generate";
+  }
+
   return (
     <>
       <Navbar />
       <main className="workspace-page">
         <section className="workspace-shell">
-          <div className="workspace-heading">
-            <div>
-              <p className="workspace-kicker">Document AI Workspace</p>
-              <div className="workspace-title-row">
-                <h1>{document ? readableFileName : "Document workspace"}</h1>
-                {document?.status === "processed" && <span className="processed-badge">Processed ✓</span>}
-              </div>
-              {document && <p className="workspace-original-name">Original file: {document.file_name}</p>}
-            </div>
-            <div className="workspace-actions">
-              <Button to="/documents" variant="secondary">Back to Documents</Button>
+          <header className="workspace-document-header">
+            <div className="workspace-document-primary">
+              <p className="workspace-kicker">{document ? `Document / ${String(documentNumber).padStart(3, "0")}` : "Document AI Workspace"}</p>
+              <h1>{document ? readableFileName : "Document workspace"}</h1>
               {document && (
-                <button
-                  className="workspace-download-button"
-                  type="button"
-                  onClick={handleDownload}
-                  disabled={downloading}
-                  aria-label={`Download ${readableFileName}`}
-                  title="Download PDF"
-                >
-                  <span aria-hidden="true">↓</span>
-                  {downloading ? "Opening" : "PDF"}
-                </button>
+                <div className="workspace-document-meta" aria-label="Document metadata">
+                  <span>Original / {document.file_name}</span>
+                  <span>{documentSize}</span>
+                  <span>{documentType}</span>
+                </div>
               )}
             </div>
-          </div>
+
+            <div className="workspace-document-controls">
+              {document?.status === "processed" && (
+                <div className="workspace-ready-system">
+                  <span><i aria-hidden="true" /> Processed</span>
+                  <span>Index / Complete</span>
+                  <strong><Check aria-hidden="true" size={14} /> AI Ready</strong>
+                </div>
+              )}
+              <div className="workspace-actions">
+                <Button to="/documents" variant="secondary">
+                  <ArrowLeft aria-hidden="true" size={15} /> Back to Documents
+                </Button>
+                {document && (
+                  <button
+                    className="workspace-download-button"
+                    type="button"
+                    onClick={handleDownload}
+                    disabled={downloading}
+                    aria-label={`Download ${readableFileName}`}
+                  >
+                    <Download aria-hidden="true" size={15} />
+                    {downloading ? "Opening" : "Download PDF"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </header>
 
           {status === "loading" && <p className="documents-message">{message || "Loading AI workspace..."}</p>}
           {status === "error" && <p className="documents-message error">{message}</p>}
@@ -416,75 +494,98 @@ export default function DocumentWorkspace() {
           )}
 
           {document && (
-            <div className="workspace-grid">
+            <div className="workspace-grid" data-active-tool={activeTab}>
               <aside className="workspace-tabs" aria-label="Document AI features">
-                <div className="workspace-sidebar-title">AI Workspace</div>
-                {WORKSPACE_TABS.map((tab) => (
-                  <button
-                    className={`workspace-tab ${activeTab === tab.id ? "active" : ""} ${tab.enabled ? "" : "disabled"}`}
-                    type="button"
-                    key={tab.id}
-                    onClick={() => handleTabSelect(tab)}
-                    aria-disabled={!tab.enabled}
-                  >
-                    <i aria-hidden="true">{activeTab === tab.id ? "●" : "○"}</i>
-                    <span>{tab.label}</span>
-                    <p>{tab.detail}</p>
-                  </button>
-                ))}
+                <div className="workspace-rail-heading">
+                  <span>Juris / Tools</span>
+                  <strong>Legal intelligence</strong>
+                  <small>06 systems available</small>
+                </div>
+                <div className="workspace-tab-list">
+                  {WORKSPACE_TABS.map((tab, index) => {
+                    const TabIcon = tab.icon;
+                    const tabState = toolState(tab.id);
+                    return (
+                      <button
+                        className={`workspace-tab ${activeTab === tab.id ? "active" : ""} ${tab.enabled ? "" : "disabled"}`}
+                        type="button"
+                        key={tab.id}
+                        onClick={() => handleTabSelect(tab)}
+                        aria-disabled={!tab.enabled}
+                        aria-pressed={activeTab === tab.id}
+                        aria-current={activeTab === tab.id ? "page" : undefined}
+                      >
+                        {activeTab === tab.id && (
+                          <motion.span
+                            aria-hidden="true"
+                            className="workspace-tab-active-surface"
+                            layoutId="workspace-active-tool"
+                            transition={{ duration: prefersReducedMotion ? 0 : 0.42, ease: [0.22, 0.8, 0.36, 1] }}
+                          />
+                        )}
+                        <span className="workspace-tab-index">{String(index + 1).padStart(2, "0")}</span>
+                        <span className="workspace-tab-copy">
+                          <strong>{tab.label}</strong>
+                          <small>{tab.detail}</small>
+                        </span>
+                        <span className={`workspace-tab-state state-${tabState.toLowerCase().replace(" ", "-")}`}>{tabState}</span>
+                        <TabIcon className="workspace-tab-icon" aria-hidden="true" size={15} strokeWidth={1.6} />
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="workspace-rail-footer">
+                  <span>Source grounded</span>
+                  <span>Citations enabled</span>
+                </div>
               </aside>
 
-              <section className="workspace-panel">
-                {activeTab === "ask" ? (
-                  <AskChat
-                    askError={askError}
-                    askStatus={askStatus}
-                    chat={chat}
-                    document={document}
-                    handleAskSubmit={handleAskSubmit}
-                    question={question}
-                    setQuestion={setQuestion}
-                  />
-                ) : activeTab === "summary" ? (
-                  <ExecutiveSummaryPanel
-                    summary={summary}
-                    summaryError={summaryError}
-                    summaryStatus={summaryStatus}
-                  />
-                ) : activeTab === "intelligence" ? (
-                  <DocumentIntelligencePanel
-                    askStatus={askStatus}
-                    intelligence={intelligence}
-                    intelligenceError={intelligenceError}
-                    intelligenceStatus={intelligenceStatus}
-                    onQuestionClick={handleRecommendedQuestion}
-                  />
-                ) : activeTab === "clauses" ? (
-                  <ClauseIntelligencePanel
-                    clauses={clauses}
-                    clausesError={clausesError}
-                    clausesStatus={clausesStatus}
-                  />
-                ) : activeTab === "risks" ? (
-                  <RiskAnalysisPanel
-                    riskAnalysis={riskAnalysis}
-                    riskError={riskError}
-                    riskStatus={riskStatus}
-                  />
-                ) : activeTab === "compare" ? (
-                  <CompareDocumentsPanel
-                    compareError={compareError}
-                    compareResult={compareResult}
-                    compareStatus={compareStatus}
-                    compareTargetId={compareTargetId}
-                    currentDocument={document}
-                    documents={documents}
-                    onCompare={handleCompareDocuments}
-                    setCompareTargetId={setCompareTargetId}
-                  />
-                ) : (
-                  <DisabledTool tab={WORKSPACE_TABS.find((tab) => tab.id === activeTab)} />
-                )}
+              <section
+                className={`workspace-panel workspace-panel-${activeTab}`}
+                data-scroll-owner={activeTab === "ask" ? "chat-thread" : "tool-content"}
+                ref={workspacePanelRef}
+              >
+                <AnimatePresence initial={false} mode="popLayout" custom={prefersReducedMotion ? 0 : tabDirection}>
+                  <motion.div
+                    animate="center"
+                    className="workspace-tool-stage"
+                    custom={prefersReducedMotion ? 0 : tabDirection}
+                    exit="exit"
+                    initial="enter"
+                    key={activeTab}
+                    variants={{
+                      enter: (direction) => ({ opacity: 0, x: direction * 22, clipPath: direction >= 0 ? "inset(0 0 0 7%)" : "inset(0 7% 0 0)" }),
+                      center: { opacity: 1, x: 0, clipPath: "inset(0 0 0 0)" },
+                      exit: (direction) => ({ opacity: 0, x: direction * -16, clipPath: direction >= 0 ? "inset(0 6% 0 0)" : "inset(0 0 0 6%)" }),
+                    }}
+                    transition={{ duration: prefersReducedMotion ? 0.12 : 0.48, ease: [0.22, 0.8, 0.36, 1] }}
+                  >
+                    {activeTab === "ask" ? (
+                      <AskChat
+                        askError={askError}
+                        askStatus={askStatus}
+                        chat={chat}
+                        document={document}
+                        handleAskSubmit={handleAskSubmit}
+                        onPromptSelect={askQuestion}
+                        question={question}
+                        setQuestion={setQuestion}
+                      />
+                    ) : activeTab === "summary" ? (
+                      <ExecutiveSummaryPanel document={document} summary={summary} summaryError={summaryError} summaryStatus={summaryStatus} onRetry={loadSummary} />
+                    ) : activeTab === "intelligence" ? (
+                      <DocumentIntelligencePanel askStatus={askStatus} intelligence={intelligence} intelligenceError={intelligenceError} intelligenceStatus={intelligenceStatus} onQuestionClick={handleRecommendedQuestion} onRetry={loadIntelligence} />
+                    ) : activeTab === "clauses" ? (
+                      <ClauseIntelligencePanel clauses={clauses} clausesError={clausesError} clausesStatus={clausesStatus} onRetry={loadClauses} />
+                    ) : activeTab === "risks" ? (
+                      <RiskAnalysisPanel riskAnalysis={riskAnalysis} riskError={riskError} riskStatus={riskStatus} onRetry={loadRiskAnalysis} />
+                    ) : activeTab === "compare" ? (
+                      <CompareDocumentsPanel compareError={compareError} compareResult={compareResult} compareStatus={compareStatus} compareTargetId={compareTargetId} currentDocument={document} documents={documents} onCompare={handleCompareDocuments} setCompareTargetId={setCompareTargetId} />
+                    ) : (
+                      <DisabledTool tab={WORKSPACE_TABS.find((tab) => tab.id === activeTab)} />
+                    )}
+                  </motion.div>
+                </AnimatePresence>
               </section>
             </div>
           )}
@@ -494,7 +595,31 @@ export default function DocumentWorkspace() {
   );
 }
 
-function AskChat({ askError, askStatus, chat, document, handleAskSubmit, question, setQuestion }) {
+const STARTER_QUESTIONS = [
+  "Who are the parties?",
+  "What is the renewal period?",
+  "What are the payment obligations?",
+  "Can either party terminate early?",
+  "What clauses create the most risk?",
+];
+
+function ToolHeader({ category, index, state, subtitle, title }) {
+  return (
+    <header className="workspace-tool-header">
+      <div className="workspace-tool-index">
+        <span>{category} / {index}</span>
+        <i aria-hidden="true" />
+      </div>
+      <div>
+        <h2>{title}</h2>
+        <p>{subtitle}</p>
+      </div>
+      <span className={`workspace-analysis-state state-${state.toLowerCase().replaceAll(" ", "-")}`}>{state}</span>
+    </header>
+  );
+}
+
+function AskChat({ askError, askStatus, chat, document, handleAskSubmit, onPromptSelect, question, setQuestion }) {
   function handleKeyDown(event) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -503,22 +628,42 @@ function AskChat({ askError, askStatus, chat, document, handleAskSubmit, questio
   }
 
   return (
-    <div className="ask-workspace">
-      <div className="ask-workspace-header">
-        <div>
-          <h2>Chat with your legal document</h2>
-          <p>Ask questions about clauses, payments, obligations and legal terms.</p>
-        </div>
-        <span className={`document-status-pill status-${document.status}`}>
-          {document.status === "processed" ? "Processed ✓" : document.status}
-        </span>
-      </div>
+    <div className={`ask-workspace ${chat.length ? "has-messages" : "is-empty"}`}>
+      <ToolHeader
+        category="Legal research"
+        index="01"
+        state={askStatus === "asking" ? "Reading sources" : "Ready"}
+        subtitle="Ask about clauses, payments, obligations, deadlines, and legal terms. Every answer stays grounded in this document."
+        title="Research this agreement."
+      />
 
       <div className="chat-thread" aria-live="polite">
         {chat.length === 0 && (
           <div className="chat-empty">
-            <span>Juris.</span>
-            <p>Chat with your legal document.</p>
+            <div className="chat-empty-copy">
+              <span>Ask your first question</span>
+              <h3>Start with what matters.</h3>
+              <p>Use a prompt below or ask Juris about any term in the agreement.</p>
+              <div className="chat-starter-list">
+                {STARTER_QUESTIONS.map((prompt, index) => (
+                  <button type="button" key={prompt} onClick={() => onPromptSelect(prompt)}>
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <strong>{prompt}</strong>
+                    <ArrowRight aria-hidden="true" size={16} />
+                  </button>
+                ))}
+              </div>
+            </div>
+            <aside className="chat-document-context">
+              <span>Document context</span>
+              <strong>{displayFileName(document.file_name || document.title)}</strong>
+              <dl>
+                <div><dt>Document</dt><dd>Indexed</dd></div>
+                <div><dt>Answers</dt><dd>Source-grounded</dd></div>
+                <div><dt>Citations</dt><dd>Enabled</dd></div>
+                <div><dt>Status</dt><dd className="verified">Ready</dd></div>
+              </dl>
+            </aside>
           </div>
         )}
 
@@ -545,54 +690,71 @@ function AskChat({ askError, askStatus, chat, document, handleAskSubmit, questio
         ))}
 
         {askStatus === "asking" && (
-          <article className="chat-message juris loading">
-            <span>Juris</span>
-            <div className="chat-message-text">Reading the relevant chunks...</div>
+          <article className="chat-message juris chat-reading-state">
+            <span>Juris / Reading</span>
+            <div className="chat-message-text">
+              <i aria-hidden="true" />
+              Locating relevant clauses and verifying source context.
+            </div>
           </article>
         )}
       </div>
 
-      {askError && <p className="ask-message error">{askError}</p>}
+      {askError && <AnalysisError compact message={askError} />}
 
       <form className="workspace-ask-form" onSubmit={handleAskSubmit}>
-        <textarea
-          value={question}
-          onChange={(event) => setQuestion(event.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask anything about this legal document..."
-          rows={1}
-        />
-        <Button type="submit" disabled={askStatus === "asking" || !question.trim()}>
-          {askStatus === "asking" ? "..." : "Send"}
-        </Button>
+        <div className="workspace-command-meta">
+          <span>Ask Juris</span>
+          <small>Source-grounded / Citations enabled</small>
+        </div>
+        <div className="workspace-command-input">
+          <textarea
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask a question about this agreement..."
+            rows={1}
+          />
+          <button className="workspace-send-button" type="submit" disabled={askStatus === "asking" || !question.trim()}>
+            <span>{askStatus === "asking" ? "Reading" : "Send"}</span>
+            <ArrowRight aria-hidden="true" size={17} />
+          </button>
+        </div>
       </form>
     </div>
   );
 }
 
-function ExecutiveSummaryPanel({ summary, summaryError, summaryStatus }) {
+function ExecutiveSummaryPanel({ document, onRetry, summary, summaryError, summaryStatus }) {
   return (
     <div className="summary-workspace">
-      <div className="summary-workspace-header">
-        <span>Executive Summary</span>
-        <h2>Document-type aware legal summary</h2>
-        <p>Juris identifies the document type, then summarizes parties, key terms, obligations, rights, risks, and missing information.</p>
-      </div>
+      <ToolHeader category="Executive summary" index="03" state={isAiLoading(summaryStatus) ? "Composing" : summaryStatus === "ready" ? "Ready" : summaryStatus === "error" ? "Interrupted" : "Generate"} subtitle="A concise, document-aware brief covering parties, terms, obligations, rights, risks, and missing information." title="The decision brief." />
 
       {isAiLoading(summaryStatus) && (
         <AiLoadingPanel
-          title="Generating executive summary..."
-          subtitle="Reading document clauses, parties, obligations, and risks."
+          title="Composing executive brief"
+          subtitle="Reducing the agreement into decision-ready legal intelligence."
           items={["Document Type", "Parties Involved", "Key Terms", "Risk Notes"]}
         />
       )}
 
-      {summaryStatus === "error" && <p className="ask-message error">{summaryError}</p>}
+      {summaryStatus === "error" && <AnalysisError message={summaryError} onRetry={onRetry} />}
 
       {summaryStatus === "ready" && summary && (
-        <div className="summary-markdown">
-          <MarkdownView markdown={summary} />
-        </div>
+        <article className="summary-brief-shell">
+          <header className="summary-brief-meta">
+            <span>Juris / Decision Brief</span>
+            <strong>{displayFileName(document?.file_name || document?.title)}</strong>
+            <small>Source-grounded / Generated from indexed document text</small>
+          </header>
+          <div className="summary-markdown">
+            <MarkdownView markdown={summary} />
+          </div>
+          <footer className="summary-brief-footer">
+            <span>End of brief</span>
+            <span>J / 03</span>
+          </footer>
+        </article>
       )}
     </div>
   );
@@ -604,21 +766,18 @@ function DocumentIntelligencePanel({
   intelligenceError,
   intelligenceStatus,
   onQuestionClick,
+  onRetry,
 }) {
   const isLoading = isAiLoading(intelligenceStatus);
 
   return (
     <div className="intelligence-workspace">
-      <div className="intelligence-header">
-        <span>Document Intelligence</span>
-        <h2>What should you care about?</h2>
-        <p>Juris identifies the document type first, then turns the file into a structured legal intelligence dashboard.</p>
-      </div>
+      <ToolHeader category="Document intelligence" index="02" state={isLoading ? "Mapping" : intelligenceStatus === "ready" ? "Ready" : intelligenceStatus === "error" ? "Interrupted" : "Generate"} subtitle="Parties, dates, obligations, financial terms, risks, and missing information mapped into one structured view." title="What matters in this agreement?" />
 
       {isLoading && (
         <AiLoadingPanel
-          title="Building document intelligence..."
-          subtitle="Extracting key terms, timelines, financial terms, obligations, risks, and missing information."
+          title="Building document intelligence"
+          subtitle="Mapping the agreement into a structured legal model."
           items={[
             "Executive Snapshot",
             "Plain-English Summary",
@@ -631,7 +790,7 @@ function DocumentIntelligencePanel({
         />
       )}
 
-      {intelligenceStatus === "error" && <p className="ask-message error">{intelligenceError}</p>}
+      {intelligenceStatus === "error" && <AnalysisError message={intelligenceError} onRetry={onRetry} />}
 
       {intelligenceStatus === "ready" && intelligence && (
         <IntelligenceDashboard
@@ -644,27 +803,23 @@ function DocumentIntelligencePanel({
   );
 }
 
-function ClauseIntelligencePanel({ clauses, clausesError, clausesStatus }) {
+function ClauseIntelligencePanel({ clauses, clausesError, clausesStatus, onRetry }) {
   const isLoading = isAiLoading(clausesStatus);
 
   return (
     <div className="clauses-workspace">
-      <div className="clauses-header">
-        <span>Clause Intelligence</span>
-        <h2>Important clauses, explained simply</h2>
-        <p>Juris identifies the document type, extracts supported clauses, and explains obligations, rights, restrictions, deadlines, and financial terms.</p>
-      </div>
+      <ToolHeader category="Clause intelligence" index="04" state={isLoading ? "Indexing" : clausesStatus === "ready" ? "Ready" : clausesStatus === "error" ? "Interrupted" : "Generate"} subtitle="Supported clauses organized by obligation, right, restriction, deadline, financial effect, and source reference." title="Terms, obligations, rights." />
 
       {isLoading && (
         <AiLoadingPanel
-          title="Extracting clause intelligence..."
-          subtitle="Identifying key clauses, obligations, rights, restrictions, dates, financial terms, and risk signals."
+          title="Indexing clauses"
+          subtitle="Finding obligations, rights, restrictions, deadlines, and financial terms."
           items={["Clause Titles", "Risk Levels", "Obligations", "Rights", "Deadlines", "Financial Terms"]}
           variant="clauses"
         />
       )}
 
-      {clausesStatus === "error" && <p className="ask-message error">{clausesError}</p>}
+      {clausesStatus === "error" && <AnalysisError message={clausesError} onRetry={onRetry} />}
 
       {clausesStatus === "ready" && clauses && (
         <ClauseDashboard data={clauses} />
@@ -673,27 +828,23 @@ function ClauseIntelligencePanel({ clauses, clausesError, clausesStatus }) {
   );
 }
 
-function RiskAnalysisPanel({ riskAnalysis, riskError, riskStatus }) {
+function RiskAnalysisPanel({ onRetry, riskAnalysis, riskError, riskStatus }) {
   const isLoading = isAiLoading(riskStatus);
 
   return (
     <div className="risk-workspace">
-      <div className="risk-header">
-        <span>Risk Analysis</span>
-        <h2>Legal risk, translated into action</h2>
-        <p>Juris identifies the document type first, then surfaces supported legal, financial, operational, and compliance risks in plain English.</p>
-      </div>
+      <ToolHeader category="Risk analysis" index="05" state={isLoading ? "Assessing" : riskStatus === "ready" ? "Ready" : riskStatus === "error" ? "Interrupted" : "Generate"} subtitle="Document-supported legal, financial, operational, and compliance exposure translated into practical action." title="Exposure, translated." />
 
       {isLoading && (
         <AiLoadingPanel
-          title="Analyzing document risks..."
-          subtitle="Reviewing legal impact, financial exposure, operational burden, missing protections, unusual terms, and compliance signals."
+          title="Assessing document risk"
+          subtitle="Reviewing exposure, unusual language, missing protections, and commercial impact."
           items={["Overall Risk", "Legal Risks", "Financial Risks", "Missing Protections", "Unusual Terms", "Recommendations"]}
           variant="risks"
         />
       )}
 
-      {riskStatus === "error" && <p className="ask-message error">{riskError}</p>}
+      {riskStatus === "error" && <AnalysisError message={riskError} onRetry={onRetry} />}
 
       {riskStatus === "ready" && riskAnalysis && (
         <RiskDashboard data={riskAnalysis} />
@@ -724,42 +875,66 @@ function CompareDocumentsPanel({
 
   return (
     <div className="compare-workspace">
-      <div className="compare-header">
-        <span>Compare Documents</span>
-        <h2>Understand what changed</h2>
-        <p>Select another processed document and Juris will compare meaningful legal, financial, obligation, deadline, risk, and clause differences.</p>
+      <ToolHeader category="Document comparison" index="06" state={isLoading ? "Comparing" : compareStatus === "ready" ? "Ready" : compareStatus === "error" ? "Interrupted" : candidates.length ? "Select file" : "Need file"} subtitle="Compare meaningful clause, obligation, financial, deadline, wording, and risk changes against another processed document." title="What changed?" />
+
+      <div className="compare-setup-shell">
+        <form className="compare-picker-card" onSubmit={handleSubmit}>
+          <div className="compare-document-mini current">
+            <span>Current document / A</span>
+            <strong>{displayFileName(currentDocument.file_name || currentDocument.title)}</strong>
+            <p>Processed / Ready</p>
+          </div>
+
+          <div className="compare-switch" aria-hidden="true">
+            <span>A</span><i /><span>B</span>
+          </div>
+
+          <label className="compare-select-wrap">
+            <span>Compare against / B</span>
+            <select
+              disabled={!candidates.length || isSubmitting}
+              onChange={(event) => setCompareTargetId(event.target.value)}
+              value={compareTargetId}
+            >
+              <option value="">Select a processed document</option>
+              {candidates.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {displayFileName(item.file_name || item.title)}
+                </option>
+              ))}
+            </select>
+            <p>{candidates.length ? "Only processed documents are available." : "No second processed document is available."}</p>
+          </label>
+
+          <button className="compare-run-button" type="submit" disabled={!compareTargetId || isSubmitting || !candidates.length}>
+            <span>{isSubmitting ? "Comparing" : "Run Comparison"}</span>
+            <ArrowRight aria-hidden="true" size={17} />
+          </button>
+        </form>
+
+        <div className="compare-scope-ledger" aria-label="Comparison scope">
+          <span>Comparison scope</span>
+          {[
+            "Clause additions",
+            "Clause removals",
+            "Changed obligations",
+            "Financial changes",
+            "Deadline changes",
+            "Risk and wording shifts",
+          ].map((item, index) => (
+            <div key={item}><small>{String(index + 1).padStart(2, "0")}</small><strong>{item}</strong><i aria-hidden="true" /></div>
+          ))}
+        </div>
       </div>
 
-      <form className="compare-picker-card" onSubmit={handleSubmit}>
-        <div className="compare-document-mini">
-          <span>Current Document</span>
-          <strong>{displayFileName(currentDocument.file_name || currentDocument.title)}</strong>
-          <p>Document A</p>
-        </div>
-
-        <div className="compare-switch" aria-hidden="true">↔</div>
-
-        <label className="compare-select-wrap">
-          <span>Compare With</span>
-          <select
-            disabled={!candidates.length || isSubmitting}
-            onChange={(event) => setCompareTargetId(event.target.value)}
-            value={compareTargetId}
-          >
-            <option value="">Select a processed document</option>
-            {candidates.map((item) => (
-              <option key={item.id} value={item.id}>
-                {displayFileName(item.file_name || item.title)}
-              </option>
-            ))}
-          </select>
-          <p>{candidates.length ? "Only processed documents are available for comparison." : "Upload and process another document to compare."}</p>
-        </label>
-
-        <Button type="submit" disabled={!compareTargetId || isSubmitting || !candidates.length}>
-          {isSubmitting ? "Comparing..." : "Compare"}
-        </Button>
-      </form>
+      {!candidates.length && compareStatus === "idle" && (
+        <WorkspaceEmptyState
+          action={<Button to="/upload-document">Upload Another Document</Button>}
+          detail="Upload and process another version to compare legal and commercial changes."
+          index="B / Required"
+          title="No second document available"
+        />
+      )}
 
       {selectedDocument && compareStatus === "idle" && (
         <p className="compare-hint">Ready to compare with {displayFileName(selectedDocument.file_name || selectedDocument.title)}.</p>
@@ -767,14 +942,14 @@ function CompareDocumentsPanel({
 
       {isLoading && (
         <AiLoadingPanel
-          title="Comparing documents..."
+          title="Comparing document structures"
           subtitle="Checking document types, clause changes, payment terms, obligations, deadlines, and risk movement."
           items={["Document Types", "Clause Changes", "Financial Terms", "Obligations", "Deadlines", "Risk Changes"]}
           variant="compare"
         />
       )}
 
-      {compareStatus === "error" && <p className="ask-message error">{compareError}</p>}
+      {compareStatus === "error" && <AnalysisError message={compareError} onRetry={() => onCompare(compareTargetId)} />}
 
       {compareStatus === "ready" && compareResult && (
         <CompareDashboard data={compareResult} />
@@ -784,37 +959,127 @@ function CompareDocumentsPanel({
 }
 
 function AiLoadingPanel({ items = [], subtitle, title, variant = "summary" }) {
+  const summarySections = ["Document type", "Parties", "Purpose", "Key obligations", "Financial terms", "Important dates", "Risks", "Missing information"];
+  const clauseRows = ["Confidentiality", "Payment", "Term and renewal", "Termination", "Liability", "Governing law"];
+  const riskRows = ["Legal", "Financial", "Operational", "Compliance", "Missing protection", "Unusual terms"];
+
   return (
-    <div className={`ai-loading-panel ${variant}`} role="status" aria-live="polite">
-      <div className="ai-loading-copy">
-        <span>Juris AI</span>
+    <section className={`juris-processing-system ${variant}`} role="status" aria-live="polite">
+      <header className="processing-system-header">
+        <span>Juris processing system</span>
         <h3>{title}</h3>
         <p>{subtitle}</p>
-      </div>
+        <small>Analysis in progress / Do not close this document</small>
+      </header>
 
-      <div className="ai-loading-track" aria-hidden="true">
-        <span />
-      </div>
+      <div className="processing-progress-rule" aria-hidden="true"><i /></div>
 
-      <div className="ai-loading-grid" aria-hidden="true">
-        {items.map((item) => (
-          <div className="ai-loading-card" key={item}>
-            <div className="ai-loading-card-top">
-              <i />
-              <b>{item}</b>
-            </div>
-            <em />
-            <em />
-            <em className="short" />
+      {variant === "intelligence" && (
+        <div className="processing-intelligence-map" aria-hidden="true">
+          <div className="processing-structure-index">
+            <span>Document structure</span>
+            {["01 / Parties", "02 / Definitions", "03 / Obligations", "04 / Term", "05 / Remedies"].map((item) => <i key={item}>{item}</i>)}
           </div>
-        ))}
-      </div>
-    </div>
+          <div className="processing-extraction-stream">
+            <span>Live extraction</span>
+            <p>Party names detected</p>
+            <p>Renewal clause located</p>
+            <p>Payment terms classified</p>
+            <p>Source references attached</p>
+          </div>
+          <div className="processing-category-index">
+            <span>Intelligence categories</span>
+            {items.map((item, index) => <p key={item}><i>{String(index + 1).padStart(2, "0")}</i>{item}<b /></p>)}
+          </div>
+        </div>
+      )}
+
+      {variant === "summary" && (
+        <div className="processing-summary-sheet" aria-hidden="true">
+          <div className="processing-summary-margin"><span>Executive brief / Drafting</span><i /></div>
+          <div className="processing-summary-sections">
+            {summarySections.map((item, index) => (
+              <div key={item}><span>{String(index + 1).padStart(2, "0")}</span><strong>{item}</strong><i /></div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {variant === "clauses" && (
+        <div className="processing-clause-index" aria-hidden="true">
+          <header><span>Clause index</span><span>Source</span><span>State</span></header>
+          {clauseRows.map((item, index) => (
+            <div key={item} style={{ "--loader-index": index }}>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <strong>{item}</strong>
+              <small>Src {String(index + 2).padStart(2, "0")}.{(index % 3) + 1}</small>
+              <em>{index < 2 ? "Found" : index < 4 ? "Classifying" : "Scanning"}</em>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {variant === "risks" && (
+        <div className="processing-risk-matrix" aria-hidden="true">
+          {riskRows.map((item, index) => (
+            <div key={item} style={{ "--loader-index": index }}>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <strong>{item}</strong>
+              <i />
+              <em>{index < 2 ? "Source verified" : index < 4 ? "Assessing impact" : "Reviewing"}</em>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {variant === "compare" && (
+        <div className="processing-compare-system" aria-hidden="true">
+          <div><span>Document A</span><strong>Structure indexed</strong><i /></div>
+          <b><ArrowRight size={18} /></b>
+          <div><span>Document B</span><strong>Aligning clauses</strong><i /></div>
+          <footer>{items.slice(0, 5).map((item) => <span key={item}>{item}</span>)}</footer>
+        </div>
+      )}
+
+      <footer className="processing-activity-log">
+        <span>Activity</span>
+        <p><i /> Source document verified</p>
+        <p><i /> Structured analysis running</p>
+        <p><i /> Results will remain grounded in document sources</p>
+      </footer>
+    </section>
+  );
+}
+
+function WorkspaceEmptyState({ action, detail, index, title }) {
+  return (
+    <section className="workspace-empty-state">
+      <span>{index}</span>
+      <div><h3>{title}</h3><p>{detail}</p></div>
+      {action && <div className="workspace-empty-action">{action}</div>}
+    </section>
+  );
+}
+
+function AnalysisError({ compact = false, message, onRetry }) {
+  const safeMessage = String(message || "Juris could not complete this analysis.").split(" - ")[0].slice(0, 240);
+  return (
+    <section className={`workspace-analysis-error${compact ? " compact" : ""}`} role="alert">
+      <span>Analysis interrupted</span>
+      <div><h3>Juris could not complete this analysis.</h3><p>{safeMessage}</p></div>
+      {onRetry && <button type="button" onClick={onRetry}>Try Again <ArrowRight aria-hidden="true" size={16} /></button>}
+    </section>
   );
 }
 
 function ClauseDashboard({ data }) {
   const clauseItems = Array.isArray(data?.clauses) ? data.clauses : [];
+  const [activeClauseIndex, setActiveClauseIndex] = useState(0);
+  const activeClause = clauseItems[activeClauseIndex] || clauseItems[0];
+
+  useEffect(() => {
+    setActiveClauseIndex((current) => Math.min(current, Math.max(0, clauseItems.length - 1)));
+  }, [clauseItems.length]);
 
   return (
     <div className="clause-dashboard">
@@ -825,10 +1090,49 @@ function ClauseDashboard({ data }) {
       </section>
 
       {clauseItems.length > 0 ? (
-        <div className="clause-card-list">
-          {clauseItems.map((clause, index) => (
-            <ClauseCard clause={clause} index={index} key={`${displayText(clause.title)}-${displayText(clause.sourceReference)}-${index}`} />
-          ))}
+        <div className="clause-inspection-layout">
+          <nav className="clause-index-panel" aria-label="Extracted clauses">
+            <header>
+              <span>Clause index</span>
+              <small>{String(clauseItems.length).padStart(2, "0")} / Found</small>
+            </header>
+            {clauseItems.map((clause, index) => (
+              <button
+                aria-current={activeClauseIndex === index ? "true" : undefined}
+                className={activeClauseIndex === index ? "active" : ""}
+                key={`${displayText(clause.title)}-${displayText(clause.sourceReference)}-${index}`}
+                onClick={() => setActiveClauseIndex(index)}
+                type="button"
+              >
+                {activeClauseIndex === index && (
+                  <motion.i
+                    aria-hidden="true"
+                    className="clause-active-marker"
+                    layoutId="active-clause-marker"
+                    transition={{ duration: 0.32, ease: [0.22, 0.8, 0.36, 1] }}
+                  />
+                )}
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <strong>{displayText(clause.title)}</strong>
+                <small>{displayText(clause.category)}</small>
+                <em>{displayText(clause.riskLevel)}</em>
+              </button>
+            ))}
+          </nav>
+
+          <div className="clause-analysis-panel">
+            <AnimatePresence initial={false} mode="wait">
+              <motion.div
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                initial={{ opacity: 0, x: 12 }}
+                key={`${displayText(activeClause?.title)}-${activeClauseIndex}`}
+                transition={{ duration: 0.3, ease: [0.22, 0.8, 0.36, 1] }}
+              >
+                <ClauseCard clause={activeClause} index={activeClauseIndex} />
+              </motion.div>
+            </AnimatePresence>
+          </div>
         </div>
       ) : (
         <section className="clause-empty-state">
@@ -923,6 +1227,12 @@ function RiskDashboard({ data }) {
         <div className="risk-overview-main">
           <span className={`risk-overall-badge risk-${riskClass}`}>{overallRisk}</span>
           <p>{displayText(data?.summary)}</p>
+          <div className={`risk-calibration risk-${riskClass}`} aria-label={`Overall exposure: ${overallRisk}`}>
+            <div><i aria-hidden="true" /></div>
+            <span>Low</span>
+            <span>Medium</span>
+            <span>High</span>
+          </div>
         </div>
       </section>
 
