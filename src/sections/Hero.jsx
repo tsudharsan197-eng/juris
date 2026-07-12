@@ -1,4 +1,4 @@
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { ArrowDown, ShieldCheck } from "lucide-react";
 import Button from "../components/Button.jsx";
 import { useAuth } from "../components/AuthProvider.jsx";
@@ -9,6 +9,7 @@ export default function Hero() {
   const { user, isSignedIn } = useAuth();
   const userName = displayName(user);
   const isMobile = useMediaQuery("(max-width: 1023px)");
+  const reduceMotion = useReducedMotion();
   const activeLockup = isMobile ? mobileLockup : lockup;
   const activeLineReveal = isMobile ? mobileLineReveal : lineReveal;
 
@@ -24,7 +25,7 @@ export default function Hero() {
         <span>37.7749 N</span>
       </div>
 
-      <motion.div className="hero-lockup" initial="hidden" animate="visible" variants={activeLockup}>
+      <motion.div className="hero-lockup" initial={reduceMotion ? false : "hidden"} animate="visible" variants={activeLockup}>
         {isSignedIn && (
           <motion.div className="hero-greeting" variants={activeLineReveal}>
             <span>Welcome back</span><strong>{userName}</strong>
@@ -33,9 +34,9 @@ export default function Hero() {
         <motion.p className="hero-kicker" variants={activeLineReveal}>From documents to decisions.</motion.p>
         <div className="hero-title-stage">
           <h1 className="hero-title hero-title-back">
-            <motion.span variants={activeLineReveal}>Legal documents</motion.span>
-            <motion.span variants={activeLineReveal}>become <em>legal</em></motion.span>
-            <motion.span className="hero-title-last" variants={activeLineReveal}>intelligence.</motion.span>
+            <motion.span custom={0} variants={activeLineReveal}>Legal documents</motion.span>
+            <motion.span custom={1} variants={activeLineReveal}>become <em>legal</em></motion.span>
+            <motion.span custom={2} className="hero-title-last" variants={activeLineReveal}>intelligence.</motion.span>
           </h1>
           <h1 className="hero-title hero-title-foreground" aria-hidden="true">
             <span>Legal documents</span>
@@ -48,7 +49,7 @@ export default function Hero() {
       <div className="hero-bottom-grid">
         <motion.div
           className="hero-intro"
-          initial={isMobile ? { clipPath: "inset(0 0 100% 0)", y: 28 } : { clipPath: "inset(0 100% 0 0)" }}
+          initial={reduceMotion ? false : isMobile ? { clipPath: "inset(0 0 100% 0)", y: 28 } : { clipPath: "inset(0 100% 0 0)" }}
           animate={isMobile ? { clipPath: "inset(0 0 0% 0)", y: 0 } : { clipPath: "inset(0 0% 0 0)" }}
           transition={isMobile ? { delay: .48, duration: .68, ease: [.25, .8, .25, 1] } : { delay: .65, duration: 1.1 }}
         >
@@ -78,8 +79,21 @@ const lineReveal = {
   visible: { clipPath: "inset(0 0 0% 0)", y: 0, rotateX: 0, transition: { duration: 1.05, ease: [0.22, 1, 0.36, 1] } },
 };
 const mobileLineReveal = {
-  hidden: { clipPath: "inset(0 0 100% 0)", y: 42, scaleY: .96 },
-  visible: { clipPath: "inset(0 0 0% 0)", y: 0, scaleY: 1, transition: { duration: .72, ease: [.25, .8, .25, 1] } },
+  hidden: (index = 0) => ({
+    clipPath: "inset(0 0 100% 0)",
+    x: index === 1 ? 34 : index === 2 ? -28 : -14,
+    y: 58 + (index * 6),
+    rotateX: -9,
+    scaleY: .92,
+  }),
+  visible: (index = 0) => ({
+    clipPath: "inset(0 0 0% 0)",
+    x: 0,
+    y: 0,
+    rotateX: 0,
+    scaleY: 1,
+    transition: { duration: .78, delay: index * .025, ease: [.2, .78, .2, 1] },
+  }),
 };
 
 function displayName(user) {

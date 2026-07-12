@@ -1,4 +1,4 @@
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import MotionReveal from "../components/MotionReveal";
 import useMediaQuery from "../hooks/useMediaQuery";
 
@@ -11,6 +11,7 @@ const capabilities = [
 
 export default function MeetJuris() {
   const isMobile = useMediaQuery("(max-width: 1023px)");
+  const reduceMotion = useReducedMotion();
 
   return (
     <section className="section-shell editorial-intro" id="what-is-juris">
@@ -25,11 +26,12 @@ export default function MeetJuris() {
         {capabilities.map(([title, copy], index) => (
           <motion.article
             className="capability-line"
+            custom={index}
             key={title}
-            initial={isMobile ? { clipPath: "inset(0 0 100% 0)", y: 46, scale: .985 } : { clipPath: "inset(0 100% 0 0)" }}
-            whileInView={isMobile ? { clipPath: "inset(0 0 0% 0)", y: 0, scale: 1 } : { clipPath: "inset(0 0% 0 0)" }}
+            initial={reduceMotion ? false : isMobile ? { clipPath: "inset(0 0 100% 0)", x: index % 2 ? 42 : -42, y: 54, scale: .96 } : { clipPath: "inset(0 100% 0 0)" }}
+            whileInView={reduceMotion ? { opacity: 1 } : isMobile ? { clipPath: "inset(0 0 0% 0)", x: 0, y: 0, scale: 1 } : { clipPath: "inset(0 0% 0 0)" }}
             viewport={isMobile ? { once: false, amount: .24 } : { once: true, amount: .55 }}
-            transition={isMobile ? { duration: .62, delay: index * .035, ease: [.25, .8, .25, 1] } : { duration: .9, delay: index * .07 }}
+            transition={reduceMotion ? { duration: .16 } : isMobile ? { duration: .7, delay: index * .035, ease: [.2, .78, .2, 1] } : { duration: .9, delay: index * .07 }}
           >
             <span>{String(index + 1).padStart(2, "0")}</span>
             <h3>{title}</h3>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { AnimatePresence, motion, useMotionValueEvent, useScroll } from "framer-motion";
+import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScroll } from "framer-motion";
 import { FileUp, Files, LogIn, LogOut, Menu, X } from "lucide-react";
 import Button from "./Button.jsx";
 import ThemeToggle from "./ThemeToggle.jsx";
@@ -13,9 +13,12 @@ export default function Navbar() {
   const [compact, setCompact] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const reduceMotion = useReducedMotion();
   const menuScrollPosition = useRef(0);
   const restoreMenuScroll = useRef(true);
   const accountLabel = user?.user_metadata?.name || user?.email;
+  const activeMobileMenu = reduceMotion ? reducedMobileMenu : mobileMenu;
+  const activeMobileMenuItem = reduceMotion ? reducedMobileMenuItem : mobileMenuItem;
 
   useMotionValueEvent(scrollY, "change", (value) => {
     const previous = scrollY.getPrevious() ?? 0;
@@ -106,33 +109,36 @@ export default function Navbar() {
         {menuOpen && (
           <motion.div
             className="mobile-nav-panel"
-            variants={mobileMenu}
+            variants={activeMobileMenu}
             initial="hidden"
             animate="visible"
             exit="hidden"
           >
-            <motion.div className="mobile-nav-item" variants={mobileMenuItem}>
-              <Link to="/upload-document" onClick={closeMenuForNavigation}><FileUp size={17} /> Upload</Link>
+            <motion.div className="mobile-nav-register" variants={activeMobileMenuItem} custom={0}>
+              <span>JURIS / NAVIGATION INDEX</span><b>MENU / OPEN</b>
+            </motion.div>
+            <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={1}>
+              <Link to="/upload-document" onClick={closeMenuForNavigation}><i aria-hidden="true">01</i><FileUp size={17} /> Upload</Link>
             </motion.div>
             {isSignedIn ? (
               <>
-                <motion.div className="mobile-nav-item" variants={mobileMenuItem}>
-                  <Link to="/documents" onClick={closeMenuForNavigation}><Files size={17} /> Documents</Link>
+                <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={2}>
+                  <Link to="/documents" onClick={closeMenuForNavigation}><i aria-hidden="true">02</i><Files size={17} /> Documents</Link>
                 </motion.div>
-                <motion.div className="mobile-nav-item" variants={mobileMenuItem}>
-                  <span className="mobile-account">{accountLabel}</span>
+                <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={3}>
+                  <span className="mobile-account"><i aria-hidden="true">03</i>{accountLabel}</span>
                 </motion.div>
-                <motion.div className="mobile-nav-item" variants={mobileMenuItem}>
-                  <button type="button" onClick={handleSignOut}><LogOut size={17} /> Sign Out</button>
+                <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={4}>
+                  <button type="button" onClick={handleSignOut}><i aria-hidden="true">04</i><LogOut size={17} /> Sign Out</button>
                 </motion.div>
               </>
             ) : (
               <>
-                <motion.div className="mobile-nav-item" variants={mobileMenuItem}>
-                  <Link to="/sign-in" onClick={closeMenuForNavigation}><LogIn size={17} /> Sign In</Link>
+                <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={2}>
+                  <Link to="/sign-in" onClick={closeMenuForNavigation}><i aria-hidden="true">02</i><LogIn size={17} /> Sign In</Link>
                 </motion.div>
-                <motion.div className="mobile-nav-item" variants={mobileMenuItem}>
-                  <Link className="mobile-primary" to="/create-account" onClick={closeMenuForNavigation}>Create Account</Link>
+                <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={3}>
+                  <Link className="mobile-primary" to="/create-account" onClick={closeMenuForNavigation}><i aria-hidden="true">03</i>Create Account</Link>
                 </motion.div>
               </>
             )}
@@ -155,6 +161,22 @@ const mobileMenu = {
 };
 
 const mobileMenuItem = {
-  hidden: { y: 24, opacity: 0, clipPath: "inset(0 0 100% 0)" },
-  visible: { y: 0, opacity: 1, clipPath: "inset(0 0 0% 0)", transition: { duration: .38, ease: [.25, .8, .25, 1] } },
+  hidden: (index = 0) => ({ x: index % 2 ? 32 : -24, y: 26, opacity: 0, clipPath: "inset(0 0 100% 0)" }),
+  visible: (index = 0) => ({
+    x: 0,
+    y: 0,
+    opacity: 1,
+    clipPath: "inset(0 0 0% 0)",
+    transition: { duration: .44, delay: index * .018, ease: [.2, .78, .2, 1] },
+  }),
+};
+
+const reducedMobileMenu = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { duration: .16 } },
+};
+
+const reducedMobileMenuItem = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { duration: .12 } },
 };

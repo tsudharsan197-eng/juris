@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import MotionReveal from "../components/MotionReveal";
+import useMediaQuery from "../hooks/useMediaQuery";
 
 const steps = [
   ["Upload", "Securely upload contracts, agreements, policies, or legal PDFs."],
@@ -13,6 +14,7 @@ const steps = [
 
 export default function Workflow() {
   const [activeStep, setActiveStep] = useState(0);
+  const isMobile = useMediaQuery("(max-width: 1023px)");
 
   useEffect(() => {
     const handleScrollStep = (event) => setActiveStep(event.detail);
@@ -32,11 +34,13 @@ export default function Workflow() {
         {steps.map(([title, copy], index) => (
           <motion.button
             className={`timeline-step ${activeStep === index ? "active" : ""}`}
+            data-mobile-step={String(index + 1).padStart(2, "0")}
+            data-mobile-title={title}
             key={title}
             type="button"
             onClick={() => setActiveStep(index)}
-            whileHover={{ y: -6 }}
-            layout
+            whileHover={isMobile ? undefined : { y: -6 }}
+            layout={!isMobile}
           >
             <span className="step-number">{String(index + 1).padStart(2, "0")}</span>
             <h3>{title}</h3>

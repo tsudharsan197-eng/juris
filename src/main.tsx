@@ -1,6 +1,6 @@
 import React from "react";
 import { Analytics } from "@vercel/analytics/react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import App from "./App";
@@ -21,7 +21,8 @@ import "./editorial.css";
 function RoutedExperience() {
   const location = useLocation();
   const isMobile = useMediaQuery("(max-width: 1023px)");
-  const routeMotion = isMobile ? mobileRouteMotion : desktopRouteMotion;
+  const reduceMotion = useReducedMotion();
+  const routeMotion = reduceMotion ? reducedRouteMotion : isMobile ? mobileRouteMotion : desktopRouteMotion;
 
   return (
     <ExperienceShell>
@@ -63,6 +64,13 @@ const mobileRouteMotion = {
   animate: { clipPath: "inset(0 0 0% 0)", y: 0, scale: 1 },
   exit: { clipPath: "inset(100% 0 0 0)", y: -24, scale: .992 },
   transition: { duration: .46, ease: [0.25, .8, .25, 1] as const },
+};
+
+const reducedRouteMotion = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0 },
+  transition: { duration: .16, ease: "linear" as const },
 };
 
 createRoot(document.getElementById("root")!).render(
