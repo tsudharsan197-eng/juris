@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import type { ReactNode } from "react";
+import useMediaQuery from "../hooks/useMediaQuery";
 
 type MotionRevealProps = {
   children: ReactNode;
@@ -14,13 +15,21 @@ export default function MotionReveal({
   delay = 0,
   amount = 0.2,
 }: MotionRevealProps) {
+  const isMobile = useMediaQuery("(max-width: 1023px)");
+
   return (
     <motion.div
       className={className}
-      initial={{ clipPath: "inset(0 0 100% 0)", y: 36, rotateX: -3 }}
-      whileInView={{ clipPath: "inset(0 0 0% 0)", y: 0, rotateX: 0 }}
-      viewport={{ once: true, amount }}
-      transition={{ delay, duration: 1.05, ease: [0.22, 1, 0.36, 1] }}
+      initial={isMobile
+        ? { clipPath: "inset(0 0 100% 0)", y: 58, scale: .985 }
+        : { clipPath: "inset(0 0 100% 0)", y: 36, rotateX: -3 }}
+      whileInView={isMobile
+        ? { clipPath: "inset(0 0 0% 0)", y: 0, scale: 1 }
+        : { clipPath: "inset(0 0 0% 0)", y: 0, rotateX: 0 }}
+      viewport={isMobile ? { once: false, amount: Math.min(amount, .18) } : { once: true, amount }}
+      transition={isMobile
+        ? { delay, duration: .72, ease: [0.25, .8, .25, 1] }
+        : { delay, duration: 1.05, ease: [0.22, 1, 0.36, 1] }}
     >
       {children}
     </motion.div>

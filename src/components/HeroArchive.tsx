@@ -1,6 +1,11 @@
-const layerCount = 120;
+import useMediaQuery from "../hooks/useMediaQuery";
+
+const archiveLayerCount = 120;
 
 export default function HeroArchive() {
+  const isMobile = useMediaQuery("(max-width: 1023px)");
+  const renderedLayerCount = isMobile ? 36 : archiveLayerCount;
+
   return (
     <div className="hero-machine">
       <div className="hero-machine-registration" aria-hidden="true">
@@ -11,14 +16,14 @@ export default function HeroArchive() {
 
       <div className="hero-monolith">
         <div className="hero-archive-layers">
-          {Array.from({ length: layerCount }, (_, index) => (
+          {Array.from({ length: renderedLayerCount }, (_, index) => (
             <i
               className="hero-archive-layer"
               data-layer={index}
               key={index}
               style={{
-                top: `${(index / layerCount) * 100}%`,
-                height: `calc(${100 / layerCount}% + 0.55px)`,
+                top: `${(index / renderedLayerCount) * 100}%`,
+                height: `calc(${100 / renderedLayerCount}% + 0.55px)`,
               }}
             />
           ))}

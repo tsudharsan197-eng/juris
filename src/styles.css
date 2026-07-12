@@ -14,19 +14,19 @@
 
 :root {
   color-scheme: dark;
-  --bg: #080807;
-  --bg-elevated: #10100f;
-  --card: #171715;
-  --card-strong: #20201d;
-  --text: #fff7e8;
-  --muted: #b9b0a3;
-  --subtle: #827a70;
-  --border: rgba(255, 247, 232, 0.16);
-  --border-strong: rgba(255, 247, 232, 0.28);
-  --orange: #ff6a2a;
-  --violet: #aa8cff;
-  --lime: #d7ff5f;
-  --shadow: 0 30px 90px rgba(0, 0, 0, 0.45);
+  --bg: var(--color-bg, #101216);
+  --bg-elevated: var(--color-shell, #171a1f);
+  --card: var(--color-panel, #1e2229);
+  --card-strong: var(--color-panel-elevated, #282d35);
+  --text: var(--color-text-primary, #f4efe7);
+  --muted: var(--color-text-secondary, #c1bcb4);
+  --subtle: var(--color-text-muted, #858b94);
+  --border: var(--color-border, rgba(222, 228, 237, 0.11));
+  --border-strong: var(--color-border-strong, rgba(222, 228, 237, 0.21));
+  --orange: var(--color-accent-primary, #d45a3a);
+  --violet: var(--color-accent-blue, #4c78ff);
+  --lime: var(--color-accent-success, #c6f43d);
+  --shadow: 0 30px 90px var(--color-shadow, rgba(2, 6, 12, 0.38));
   --font-display: "Clash Display", ui-sans-serif, system-ui, sans-serif;
   --font-body: "Chillax", ui-sans-serif, system-ui, sans-serif;
 }

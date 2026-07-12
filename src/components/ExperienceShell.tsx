@@ -54,6 +54,18 @@ export default function ExperienceShell({ children }: ExperienceShellProps) {
     };
   }, [isDocumentWorkspace]);
 
+  useEffect(() => {
+    const restoreScroll = (event: Event) => {
+      const top = Number((event as CustomEvent).detail);
+      if (!Number.isFinite(top)) return;
+      lenisRef.current?.scrollTo(top, { immediate: true });
+      window.scrollTo({ top, left: 0, behavior: "auto" });
+    };
+
+    window.addEventListener("juris:restore-scroll", restoreScroll);
+    return () => window.removeEventListener("juris:restore-scroll", restoreScroll);
+  }, []);
+
   return (
     <MotionConfig reducedMotion="user" transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}>
       <div className={`experience-shell${isDocumentWorkspace ? " workspace-route-shell" : ""}`}>

@@ -27,6 +27,13 @@ export default function ScrollDirector() {
     const updateScrollTrigger = () => ScrollTrigger.update();
     window.addEventListener("juris:lenis-scroll", updateScrollTrigger);
 
+    const accentHex = getComputedStyle(document.documentElement).getPropertyValue("--vermillion").trim();
+    const accentMatch = accentHex.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
+    const accentChannels = accentMatch
+      ? accentMatch.slice(1).map((channel) => Number.parseInt(channel, 16))
+      : [212, 90, 58];
+    const accentWithAlpha = (alpha: number) => `rgba(${accentChannels.join(",")},${alpha})`;
+
     const context = gsap.context(() => {
       const mechanicalEase = CustomEase.create("jurisMechanical", "M0,0 C0.55,0 0.18,1 1,1");
       const archiveLayers = gsap.utils.toArray<HTMLElement>(".hero-archive-layer");
@@ -196,7 +203,7 @@ export default function ScrollDirector() {
         transformationTimeline
           .fromTo(transformationEntryRule, { scaleX: 0.16 }, { scaleX: 1, duration: 0.24, ease: "none" }, 0)
           .fromTo(transformationRaw, { y: 24, scaleY: 0.96 }, { y: 0, scaleY: 1, transformOrigin: "top center", duration: 0.28, ease: mechanicalEase }, 0)
-          .fromTo(transformationMarks, { boxShadow: "inset 0 -1px 0 rgba(196,77,49,.9)" }, { boxShadow: "inset 0 -1.25em 0 rgba(196,77,49,.26)", duration: 0.2, stagger: 0.06, ease: "none" }, 0.24)
+          .fromTo(transformationMarks, { boxShadow: `inset 0 -1px 0 ${accentWithAlpha(.9)}` }, { boxShadow: `inset 0 -1.25em 0 ${accentWithAlpha(.26)}`, duration: 0.2, stagger: 0.06, ease: "none" }, 0.24)
           .fromTo(transformationConnectors, { scaleX: 0 }, { scaleX: 1, transformOrigin: "left center", duration: 0.28, stagger: 0.055, ease: "none" }, 0.28)
           .fromTo(transformationRail, { scaleY: 0.08 }, { scaleY: 1, transformOrigin: "top center", duration: 0.3, ease: mechanicalEase }, 0.34)
           .fromTo(transformationRailItems, { opacity: 0, clipPath: "inset(0 100% 0 0)" }, { opacity: 1, clipPath: "inset(0 0% 0 0)", duration: 0.2, stagger: 0.055, ease: "none" }, 0.45)

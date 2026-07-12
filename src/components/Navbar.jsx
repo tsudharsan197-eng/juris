@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AnimatePresence, motion, useMotionValueEvent, useScroll } from "framer-motion";
 import { FileUp, Files, LogIn, LogOut, Menu, X } from "lucide-react";
@@ -13,6 +13,8 @@ export default function Navbar() {
   const [compact, setCompact] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuScrollPosition = useRef(0);
+  const restoreMenuScroll = useRef(true);
   const accountLabel = user?.user_metadata?.name || user?.email;
 
   useMotionValueEvent(scrollY, "change", (value) => {
@@ -21,7 +23,29 @@ export default function Navbar() {
     setHidden(value > 140 && value > previous);
   });
 
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    menuScrollPosition.current = window.scrollY;
+    document.documentElement.classList.add("mobile-menu-open");
+    document.body.classList.add("mobile-menu-open");
+    return () => {
+      document.documentElement.classList.remove("mobile-menu-open");
+      document.body.classList.remove("mobile-menu-open");
+      const top = restoreMenuScroll.current ? menuScrollPosition.current : 0;
+      window.scrollTo({ top, left: 0, behavior: "auto" });
+      window.requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent("juris:restore-scroll", { detail: top }));
+      });
+    };
+  }, [menuOpen]);
+
+  function closeMenuForNavigation() {
+    restoreMenuScroll.current = false;
+    setMenuOpen(false);
+  }
+
   async function handleSignOut() {
+    restoreMenuScroll.current = false;
     await signOut();
     window.location.assign("/");
   }
@@ -69,7 +93,10 @@ export default function Navbar() {
             type="button"
             aria-label={menuOpen ? "Close navigation" : "Open navigation"}
             aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((open) => !open)}
+            onClick={() => {
+              restoreMenuScroll.current = true;
+              setMenuOpen((open) => !open);
+            }}
           >
             {menuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
@@ -79,21 +106,34 @@ export default function Navbar() {
         {menuOpen && (
           <motion.div
             className="mobile-nav-panel"
-            initial={{ opacity: 0, y: -12, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+            variants={mobileMenu}
+            initial="hidden"
+            animate="visible"
+            exit="hidden"
           >
-            <Link to="/upload-document" onClick={() => setMenuOpen(false)}><FileUp size={17} /> Upload</Link>
+            <motion.div className="mobile-nav-item" variants={mobileMenuItem}>
+              <Link to="/upload-document" onClick={closeMenuForNavigation}><FileUp size={17} /> Upload</Link>
+            </motion.div>
             {isSignedIn ? (
               <>
-                <Link to="/documents" onClick={() => setMenuOpen(false)}><Files size={17} /> Documents</Link>
-                <span className="mobile-account">{accountLabel}</span>
-                <button type="button" onClick={handleSignOut}><LogOut size={17} /> Sign Out</button>
+                <motion.div className="mobile-nav-item" variants={mobileMenuItem}>
+                  <Link to="/documents" onClick={closeMenuForNavigation}><Files size={17} /> Documents</Link>
+                </motion.div>
+                <motion.div className="mobile-nav-item" variants={mobileMenuItem}>
+                  <span className="mobile-account">{accountLabel}</span>
+                </motion.div>
+                <motion.div className="mobile-nav-item" variants={mobileMenuItem}>
+                  <button type="button" onClick={handleSignOut}><LogOut size={17} /> Sign Out</button>
+                </motion.div>
               </>
             ) : (
               <>
-                <Link to="/sign-in" onClick={() => setMenuOpen(false)}><LogIn size={17} /> Sign In</Link>
-                <Link className="mobile-primary" to="/create-account" onClick={() => setMenuOpen(false)}>Create Account</Link>
+                <motion.div className="mobile-nav-item" variants={mobileMenuItem}>
+                  <Link to="/sign-in" onClick={closeMenuForNavigation}><LogIn size={17} /> Sign In</Link>
+                </motion.div>
+                <motion.div className="mobile-nav-item" variants={mobileMenuItem}>
+                  <Link className="mobile-primary" to="/create-account" onClick={closeMenuForNavigation}>Create Account</Link>
+                </motion.div>
               </>
             )}
           </motion.div>
@@ -102,3 +142,19 @@ export default function Navbar() {
     </header>
   );
 }
+
+const mobileMenu = {
+  hidden: {
+    clipPath: "inset(0 0 100% 0)",
+    transition: { duration: .32, ease: [.55, 0, .45, 1], when: "afterChildren", staggerChildren: .025, staggerDirection: -1 },
+  },
+  visible: {
+    clipPath: "inset(0 0 0% 0)",
+    transition: { duration: .46, ease: [.25, .8, .25, 1], when: "beforeChildren", staggerChildren: .055 },
+  },
+};
+
+const mobileMenuItem = {
+  hidden: { y: 24, opacity: 0, clipPath: "inset(0 0 100% 0)" },
+  visible: { y: 0, opacity: 1, clipPath: "inset(0 0 0% 0)", transition: { duration: .38, ease: [.25, .8, .25, 1] } },
+};

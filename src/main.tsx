@@ -14,11 +14,14 @@ import DocumentWorkspace from "./pages/DocumentWorkspace.jsx";
 import { ThemeProvider } from "./components/ThemeProvider.jsx";
 import { AuthProvider } from "./components/AuthProvider.jsx";
 import ExperienceShell from "./components/ExperienceShell";
+import useMediaQuery from "./hooks/useMediaQuery";
 import "./styles.css";
 import "./editorial.css";
 
 function RoutedExperience() {
   const location = useLocation();
+  const isMobile = useMediaQuery("(max-width: 1023px)");
+  const routeMotion = isMobile ? mobileRouteMotion : desktopRouteMotion;
 
   return (
     <ExperienceShell>
@@ -26,10 +29,10 @@ function RoutedExperience() {
         <motion.div
           key={location.pathname}
           className="route-stage"
-          initial={{ clipPath: "inset(0 0 100% 0)", y: 16 }}
-          animate={{ clipPath: "inset(0 0 0% 0)", y: 0 }}
-          exit={{ clipPath: "inset(100% 0 0 0)", y: -10 }}
-          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+          initial={routeMotion.initial}
+          animate={routeMotion.animate}
+          exit={routeMotion.exit}
+          transition={routeMotion.transition}
         >
           <Routes location={location}>
             <Route path="/" element={<App />} />
@@ -47,6 +50,20 @@ function RoutedExperience() {
     </ExperienceShell>
   );
 }
+
+const desktopRouteMotion = {
+  initial: { clipPath: "inset(0 0 100% 0)", y: 16 },
+  animate: { clipPath: "inset(0 0 0% 0)", y: 0 },
+  exit: { clipPath: "inset(100% 0 0 0)", y: -10 },
+  transition: { duration: .55, ease: [0.22, 1, 0.36, 1] as const },
+};
+
+const mobileRouteMotion = {
+  initial: { clipPath: "inset(0 0 100% 0)", y: 30, scale: .992 },
+  animate: { clipPath: "inset(0 0 0% 0)", y: 0, scale: 1 },
+  exit: { clipPath: "inset(100% 0 0 0)", y: -24, scale: .992 },
+  transition: { duration: .46, ease: [0.25, .8, .25, 1] as const },
+};
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

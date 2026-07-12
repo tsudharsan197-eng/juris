@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import Navbar from "./components/Navbar.jsx";
 import Footer from "./components/Footer.jsx";
 import ScrollDirector from "./components/ScrollDirector";
+import MobileScrollDirector from "./components/MobileScrollDirector";
 import Hero from "./sections/Hero.jsx";
 import MeetJuris from "./sections/MeetJuris.jsx";
 import WhyJuris from "./sections/WhyJuris.jsx";
@@ -20,6 +21,7 @@ export default function App() {
     >
       <Navbar />
       <ScrollDirector />
+      <MobileScrollDirector />
       <main>
         <Hero />
         <MeetJuris />

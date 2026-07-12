@@ -1,17 +1,18 @@
 import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
+import useMediaQuery from "../hooks/useMediaQuery";
 
 const INTERACTIVE_SELECTOR = "a, button, input, textarea, select, summary, [role='button']";
 
 export default function CustomCursor() {
   const reducedMotion = useReducedMotion();
+  const finePointer = useMediaQuery("(hover: hover) and (pointer: fine)");
   const [visible, setVisible] = useState(false);
   const [interactive, setInteractive] = useState(false);
   const [position, setPosition] = useState({ x: -100, y: -100 });
 
   useEffect(() => {
-    const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)");
-    if (!finePointer.matches || reducedMotion) return undefined;
+    if (!finePointer || reducedMotion) return undefined;
 
     const onMove = (event: PointerEvent) => {
       setPosition({ x: event.clientX, y: event.clientY });
@@ -31,9 +32,9 @@ export default function CustomCursor() {
       document.removeEventListener("pointerover", onOver);
       document.documentElement.removeEventListener("mouseleave", onLeave);
     };
-  }, [reducedMotion]);
+  }, [finePointer, reducedMotion]);
 
-  if (reducedMotion) return null;
+  if (reducedMotion || !finePointer) return null;
 
   return (
     <>
