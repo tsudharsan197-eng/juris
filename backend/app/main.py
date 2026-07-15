@@ -9,8 +9,9 @@ import time
 import traceback
 import uuid
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated
+from urllib.parse import urlparse
 
 import asyncpg
 import boto3
@@ -33,6 +34,7 @@ CHUNK_OVERLAP = 150
 OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
 OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-5-mini")
 OPENAI_ANALYSIS_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-5-mini")
+OPENAI_COMPASS_MODEL = os.getenv("OPENAI_COMPASS_MODEL", OPENAI_CHAT_MODEL)
 EMBEDDING_DIMENSIONS = 1536
 EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "16"))
 AI_TIMEOUT_SECONDS = int(os.getenv("OPENAI_TIMEOUT_SECONDS", os.getenv("AI_TIMEOUT_SECONDS", "120")))
@@ -40,6 +42,63 @@ COMPARE_TIMEOUT_SECONDS = int(os.getenv("OPENAI_COMPARE_TIMEOUT_SECONDS", "180")
 COMPARE_MAX_OUTPUT_TOKENS = int(os.getenv("OPENAI_COMPARE_MAX_OUTPUT_TOKENS", "1800"))
 COMPARE_CONTEXT_CHAR_BUDGET = int(os.getenv("COMPARE_CONTEXT_CHAR_BUDGET", "8000"))
 COMPARE_MAX_CHUNKS_PER_DOCUMENT = int(os.getenv("COMPARE_MAX_CHUNKS_PER_DOCUMENT", "8"))
+COMPASS_MAX_MESSAGE_CHARS = 4000
+COMPASS_HISTORY_LIMIT = 10
+COMPASS_MAX_OUTPUT_TOKENS = int(os.getenv("OPENAI_COMPASS_MAX_OUTPUT_TOKENS", "2500"))
+COMPASS_DISCLAIMER = (
+    "Juris Compass provides legal information and education. It is not legal advice. "
+    "Laws vary across jurisdictions and may change. Consult a qualified legal professional "
+    "for advice about your specific situation."
+)
+COMPASS_JURISDICTIONS = (
+    "India",
+    "United States",
+    "United Kingdom",
+    "European Union",
+    "Australia",
+    "Canada",
+    "Other",
+)
+COMPASS_SOURCE_DOMAINS = {
+    "India": [
+        "indiacode.nic.in",
+        "legislative.gov.in",
+        "egazette.nic.in",
+        "sci.gov.in",
+        "rbi.org.in",
+        "sebi.gov.in",
+    ],
+    "United States": [
+        "congress.gov",
+        "uscode.house.gov",
+        "supremecourt.gov",
+        "govinfo.gov",
+        "federalregister.gov",
+    ],
+    "United Kingdom": [
+        "legislation.gov.uk",
+        "gov.uk",
+        "judiciary.uk",
+        "bailii.org",
+    ],
+    "European Union": [
+        "eur-lex.europa.eu",
+        "curia.europa.eu",
+        "europa.eu",
+    ],
+    "Australia": [
+        "legislation.gov.au",
+        "hcourt.gov.au",
+        "fedcourt.gov.au",
+        "austlii.edu.au",
+    ],
+    "Canada": [
+        "laws-lois.justice.gc.ca",
+        "scc-csc.ca",
+        "canada.ca",
+        "gazette.gc.ca",
+    ],
+}
 SUPPORTED_TYPES = {
     "application/pdf": ".pdf",
     "application/msword": ".doc",
@@ -213,6 +272,17 @@ class AskDocumentRequest(BaseModel):
 
 class CompareDocumentsRequest(BaseModel):
     second_document_id: str
+
+
+class CompassChatRequest(BaseModel):
+    message: str
+    jurisdiction: str
+    conversation_id: str | None = None
+
+
+class CompassConversationUpdateRequest(BaseModel):
+    title: str | None = None
+    jurisdiction: str | None = None
 
 
 class AskSource(BaseModel):
@@ -425,6 +495,7 @@ def log_openai_startup_config():
         f"openai_key_detected={bool(os.getenv('OPENAI_API_KEY'))} "
         f"chat_model={OPENAI_CHAT_MODEL} "
         f"analysis_model={OPENAI_ANALYSIS_MODEL} "
+        f"compass_model={OPENAI_COMPASS_MODEL} "
         f"embedding_model={OPENAI_EMBED_MODEL} "
         f"embedding_dimensions={EMBEDDING_DIMENSIONS}"
     )
@@ -749,6 +820,264 @@ def parse_json_response(text: str) -> dict:
     if not isinstance(data, dict):
         raise RuntimeError("AI provider intelligence response must be a JSON object.")
     return data
+
+
+def normalize_compass_jurisdiction(value: str | None) -> str:
+    candidate = str(value or "").strip()
+    for jurisdiction in COMPASS_JURISDICTIONS:
+        if candidate.casefold() == jurisdiction.casefold():
+            return jurisdiction
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Unsupported jurisdiction. Choose one of: {', '.join(COMPASS_JURISDICTIONS)}.",
+    )
+
+
+def normalize_compass_conversation_id(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        return str(uuid.UUID(str(value)))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid Compass conversation id.") from exc
+
+
+def compass_conversation_title(message: str) -> str:
+    title = re.sub(r"\s+", " ", message).strip().rstrip("?.!")
+    return (title[:76].rstrip() or "New legal research")
+
+
+def build_compass_system_prompt(jurisdiction: str, checked_at: str) -> str:
+    return f"""You are Juris Compass, a legal information and legal research system.
+
+You explain laws, Acts, statutes, regulations, procedures, doctrines, rights, obligations, and legal concepts. You are completely independent from Juris document intelligence. You have no uploaded document, no PDF chunks, no document embeddings, and no private document context.
+
+JURISDICTION: {jurisdiction}
+CHECKED AS OF: {checked_at}
+
+Research rules:
+- Use web search before answering and prioritize current primary legal authorities.
+- Prefer official legislation sites, government portals, gazettes, official courts, and regulators.
+- Never invent a statute, section, case, quotation, or source.
+- Separate confirmed law from interpretation and state uncertainty honestly.
+- If the selected jurisdiction is Other and the question does not identify a jurisdiction, ask one concise clarification question instead of assuming.
+- Explain complex legal language simply.
+- Do not provide personalized legal advice or predict a user's legal outcome.
+- For high-risk personal matters, recommend advice from a qualified legal professional.
+- Keep the answer useful and concise.
+
+Return plain text with exactly these headings, each on its own line:
+DIRECT ANSWER
+PLAIN ENGLISH
+LEGAL BASIS
+IMPORTANT EXCEPTIONS
+PRACTICAL NOTES
+AUTHORITATIVE SOURCES
+
+Under AUTHORITATIVE SOURCES, name only the authorities actually consulted. The application will attach the verified clickable URLs separately."""
+
+
+def parse_compass_sections(answer: str) -> dict:
+    heading_map = {
+        "DIRECT ANSWER": "directAnswer",
+        "PLAIN ENGLISH": "plainEnglish",
+        "LEGAL BASIS": "legalBasis",
+        "IMPORTANT EXCEPTIONS": "importantExceptions",
+        "EXCEPTIONS": "importantExceptions",
+        "PRACTICAL NOTES": "practicalNotes",
+        "AUTHORITATIVE SOURCES": "authoritativeSources",
+        "SOURCES": "authoritativeSources",
+    }
+    sections = {value: "" for value in set(heading_map.values())}
+    active_key = None
+
+    for raw_line in answer.splitlines():
+        line = raw_line.strip()
+        normalized = re.sub(r"^[#*\s]+|[:\s]+$", "", line).upper()
+        if normalized in heading_map:
+            active_key = heading_map[normalized]
+            continue
+        if active_key and line:
+            sections[active_key] = f"{sections[active_key]}\n{line}".strip()
+
+    if not any(sections.values()):
+        sections["directAnswer"] = answer.strip()
+    return sections
+
+
+def extract_compass_sources(response) -> list[dict]:
+    payload = response.model_dump() if hasattr(response, "model_dump") else response
+    found = []
+    seen = set()
+
+    def add_source(url, title=None):
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")) or url in seen:
+            return
+        seen.add(url)
+        host = urlparse(url).netloc.removeprefix("www.")
+        found.append({
+            "title": str(title or host or "Legal source"),
+            "url": url,
+            "domain": host,
+        })
+
+    def walk(value):
+        if isinstance(value, dict):
+            citation = value.get("url_citation")
+            if isinstance(citation, dict):
+                add_source(citation.get("url"), citation.get("title"))
+            if value.get("type") == "url_citation":
+                add_source(value.get("url"), value.get("title"))
+            if "url" in value and ("title" in value or value.get("type") in {"source", "url"}):
+                add_source(value.get("url"), value.get("title"))
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(payload)
+    return found[:12]
+
+
+def generate_openai_compass(
+    *,
+    jurisdiction: str,
+    message: str,
+    history: list[dict],
+    checked_at: str,
+) -> dict:
+    web_search_tool = {
+        "type": "web_search",
+        "search_context_size": "low",
+    }
+    allowed_domains = COMPASS_SOURCE_DOMAINS.get(jurisdiction)
+    if allowed_domains:
+        web_search_tool["filters"] = {"allowed_domains": allowed_domains}
+
+    input_messages = [
+        {"role": item["role"], "content": item["content"]}
+        for item in history[-COMPASS_HISTORY_LIMIT:]
+        if item.get("role") in {"user", "assistant"} and item.get("content")
+    ]
+    input_messages.append({"role": "user", "content": message})
+
+    print(
+        f"[openai:compass] model={OPENAI_COMPASS_MODEL} jurisdiction={jurisdiction} "
+        f"history_messages={len(input_messages) - 1} message_chars={len(message)}"
+    )
+    try:
+        response = get_openai_client().responses.create(
+            model=OPENAI_COMPASS_MODEL,
+            instructions=build_compass_system_prompt(jurisdiction, checked_at),
+            input=input_messages,
+            tools=[web_search_tool],
+            tool_choice="auto",
+            include=["web_search_call.action.sources"],
+            max_tool_calls=2,
+            max_output_tokens=COMPASS_MAX_OUTPUT_TOKENS,
+            reasoning={"effort": "low"},
+        )
+    except OpenAIError as exc:
+        raise_openai_error(exc, model=OPENAI_COMPASS_MODEL, operation="Compass legal research")
+
+    answer = str(getattr(response, "output_text", "") or "").strip()
+    if not answer:
+        response_status = str(getattr(response, "status", "unknown") or "unknown")
+        incomplete_details = getattr(response, "incomplete_details", None)
+        incomplete_reason = str(getattr(incomplete_details, "reason", "") or "")
+        raise AIProviderError(
+            "Juris Compass reached its research limit before producing an answer. Please try a narrower question."
+            if incomplete_reason == "max_output_tokens"
+            else "Juris Compass returned no legal research output.",
+            error_type="EmptyOpenAIResponse",
+            model=OPENAI_COMPASS_MODEL,
+            status_code=502,
+            raw_response=f"status={response_status}; incomplete_reason={incomplete_reason or 'not provided'}",
+        )
+
+    sources = extract_compass_sources(response)
+    sections = parse_compass_sections(answer)
+    print(
+        f"[openai:compass] model={OPENAI_COMPASS_MODEL} response_chars={len(answer)} "
+        f"sources={len(sources)}"
+    )
+    return {
+        "answer": answer,
+        "sections": sections,
+        "jurisdiction": jurisdiction,
+        "checkedAt": checked_at,
+        "legalBasis": sections.get("legalBasis") or "Not confirmed in the returned sources.",
+        "sources": sources,
+        "sourceType": "Verified law" if sources else "Source verification unavailable",
+        "verificationStatus": "Verified sources attached" if sources else "No verified sources returned",
+        "disclaimer": COMPASS_DISCLAIMER,
+    }
+
+
+async def generate_compass_research(
+    *,
+    jurisdiction: str,
+    message: str,
+    history: list[dict],
+    checked_at: str,
+) -> dict:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(
+                generate_openai_compass,
+                jurisdiction=jurisdiction,
+                message=message,
+                history=history,
+                checked_at=checked_at,
+            ),
+            timeout=AI_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError as exc:
+        raise AIProviderError(
+            f"Juris Compass timed out after {AI_TIMEOUT_SECONDS} seconds while checking legal sources.",
+            error_type="TimeoutError",
+            model=OPENAI_COMPASS_MODEL,
+            status_code=504,
+        ) from exc
+
+
+def decode_compass_json(value) -> dict | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        return decoded if isinstance(decoded, dict) else None
+    return None
+
+
+def compass_conversation_payload(row) -> dict:
+    data = dict(row)
+    return {
+        "id": str(data["id"]),
+        "title": data["title"],
+        "jurisdiction": data["jurisdiction"],
+        "messageCount": int(data.get("message_count") or 0),
+        "preview": data.get("preview") or "No research yet.",
+        "createdAt": data["created_at"],
+        "updatedAt": data["updated_at"],
+    }
+
+
+def compass_message_payload(row) -> dict:
+    data = dict(row)
+    return {
+        "id": str(data["id"]),
+        "role": data["role"],
+        "content": data["content"],
+        "data": decode_compass_json(data.get("response_json")),
+        "createdAt": data["created_at"],
+    }
 
 
 def normalize_intelligence_payload(payload: dict) -> dict:
@@ -1970,6 +2299,277 @@ def with_cached_flag(output: dict, cached: bool) -> dict:
     normalized = dict(output)
     normalized["cached"] = cached
     return normalized
+
+
+@app.get("/api/juris-compass/conversations")
+async def list_compass_conversations(
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    req_id = request_id()
+    rows = await pool.fetch(
+        """
+        select
+          c.id,
+          c.title,
+          c.jurisdiction,
+          c.created_at,
+          c.updated_at,
+          (
+            select count(*)
+            from juris_compass_messages m
+            where m.conversation_id = c.id
+          ) as message_count,
+          (
+            select m.content
+            from juris_compass_messages m
+            where m.conversation_id = c.id
+            order by m.created_at desc
+            limit 1
+          ) as preview
+        from juris_compass_conversations c
+        where c.user_id = $1
+        order by c.updated_at desc
+        limit 50
+        """,
+        uuid.UUID(user_id),
+    )
+    return success_envelope([compass_conversation_payload(row) for row in rows], req_id)
+
+
+@app.get("/api/juris-compass/conversations/{conversation_id}")
+async def get_compass_conversation(
+    conversation_id: str,
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    req_id = request_id()
+    normalized_id = normalize_compass_conversation_id(conversation_id)
+    conversation = await pool.fetchrow(
+        """
+        select id, title, jurisdiction, created_at, updated_at,
+          (select count(*) from juris_compass_messages where conversation_id = $1) as message_count,
+          null::text as preview
+        from juris_compass_conversations
+        where id = $1 and user_id = $2
+        """,
+        uuid.UUID(normalized_id),
+        uuid.UUID(user_id),
+    )
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Compass conversation not found.")
+
+    messages = await pool.fetch(
+        """
+        select id, role, content, response_json, created_at
+        from juris_compass_messages
+        where conversation_id = $1 and user_id = $2
+        order by created_at asc
+        """,
+        uuid.UUID(normalized_id),
+        uuid.UUID(user_id),
+    )
+    data = compass_conversation_payload(conversation)
+    data["messages"] = [compass_message_payload(row) for row in messages]
+    return success_envelope(data, req_id)
+
+
+@app.patch("/api/juris-compass/conversations/{conversation_id}")
+async def update_compass_conversation(
+    conversation_id: str,
+    payload: CompassConversationUpdateRequest,
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    req_id = request_id()
+    normalized_id = normalize_compass_conversation_id(conversation_id)
+    title = str(payload.title or "").strip()
+    jurisdiction = normalize_compass_jurisdiction(payload.jurisdiction) if payload.jurisdiction else None
+    if payload.title is not None and not 2 <= len(title) <= 80:
+        raise HTTPException(status_code=400, detail="Conversation title must be between 2 and 80 characters.")
+    if payload.title is None and jurisdiction is None:
+        raise HTTPException(status_code=400, detail="Provide a title or jurisdiction to update.")
+
+    row = await pool.fetchrow(
+        """
+        update juris_compass_conversations
+        set title = coalesce($3, title),
+            jurisdiction = coalesce($4, jurisdiction),
+            updated_at = now()
+        where id = $1 and user_id = $2
+        returning id, title, jurisdiction, created_at, updated_at,
+          (select count(*) from juris_compass_messages where conversation_id = $1) as message_count,
+          null::text as preview
+        """,
+        uuid.UUID(normalized_id),
+        uuid.UUID(user_id),
+        title if payload.title is not None else None,
+        jurisdiction,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Compass conversation not found.")
+    return success_envelope(compass_conversation_payload(row), req_id)
+
+
+@app.delete("/api/juris-compass/conversations/{conversation_id}")
+async def delete_compass_conversation(
+    conversation_id: str,
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    req_id = request_id()
+    normalized_id = normalize_compass_conversation_id(conversation_id)
+    result = await pool.execute(
+        """
+        delete from juris_compass_conversations
+        where id = $1 and user_id = $2
+        """,
+        uuid.UUID(normalized_id),
+        uuid.UUID(user_id),
+    )
+    if result != "DELETE 1":
+        raise HTTPException(status_code=404, detail="Compass conversation not found.")
+    return success_envelope({"ok": True}, req_id)
+
+
+@app.post("/api/juris-compass/chat")
+async def juris_compass_chat(
+    payload: CompassChatRequest,
+    request: Request,
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    req_id = request.headers.get("x-request-id") or request_id()
+    message = re.sub(r"\s+", " ", str(payload.message or "")).strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Compass question is required.")
+    if len(message) > COMPASS_MAX_MESSAGE_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Compass questions must be {COMPASS_MAX_MESSAGE_CHARS} characters or fewer.",
+        )
+
+    jurisdiction = normalize_compass_jurisdiction(payload.jurisdiction)
+    normalized_id = normalize_compass_conversation_id(payload.conversation_id)
+    conversation = None
+    history = []
+
+    if normalized_id:
+        conversation = await pool.fetchrow(
+            """
+            select id, title, jurisdiction, created_at, updated_at
+            from juris_compass_conversations
+            where id = $1 and user_id = $2
+            """,
+            uuid.UUID(normalized_id),
+            uuid.UUID(user_id),
+        )
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Compass conversation not found.")
+        history_rows = await pool.fetch(
+            """
+            select role, content
+            from (
+              select role, content, created_at
+              from juris_compass_messages
+              where conversation_id = $1 and user_id = $2
+              order by created_at desc
+              limit $3
+            ) recent
+            order by created_at asc
+            """,
+            uuid.UUID(normalized_id),
+            uuid.UUID(user_id),
+            COMPASS_HISTORY_LIMIT,
+        )
+        history = [dict(row) for row in history_rows]
+    else:
+        normalized_id = str(uuid.uuid4())
+
+    checked_at = datetime.now(timezone.utc).date().isoformat()
+    try:
+        research = await generate_compass_research(
+            jurisdiction=jurisdiction,
+            message=message,
+            history=history,
+            checked_at=checked_at,
+        )
+    except AIProviderError as exc:
+        log_exception(
+            "juris_compass",
+            exc,
+            req_id,
+            jurisdiction=jurisdiction,
+            model=exc.model or OPENAI_COMPASS_MODEL,
+        )
+        return error_envelope_response(
+            message=str(exc),
+            request_id_value=req_id,
+            status_code_value=exc.status_code,
+            error_type=exc.error_type,
+            details={
+                "model": exc.model or OPENAI_COMPASS_MODEL,
+                "rawResponse": sanitize_log_text(exc.raw_response, limit=2000),
+            },
+        )
+
+    conversation_title = conversation["title"] if conversation else compass_conversation_title(message)
+    research["conversationId"] = normalized_id
+    research["conversationTitle"] = conversation_title
+
+    async with pool.acquire() as connection:
+        async with connection.transaction():
+            if not conversation:
+                await connection.execute(
+                    """
+                    insert into juris_compass_conversations (
+                      id, user_id, title, jurisdiction, created_at, updated_at
+                    ) values ($1, $2, $3, $4, now(), now())
+                    """,
+                    uuid.UUID(normalized_id),
+                    uuid.UUID(user_id),
+                    conversation_title,
+                    jurisdiction,
+                )
+            else:
+                await connection.execute(
+                    """
+                    update juris_compass_conversations
+                    set jurisdiction = $3, updated_at = now()
+                    where id = $1 and user_id = $2
+                    """,
+                    uuid.UUID(normalized_id),
+                    uuid.UUID(user_id),
+                    jurisdiction,
+                )
+
+            await connection.executemany(
+                """
+                insert into juris_compass_messages (
+                  id, conversation_id, user_id, role, content, response_json, created_at
+                ) values ($1, $2, $3, $4, $5, $6::jsonb, now())
+                """,
+                [
+                    (
+                        uuid.uuid4(),
+                        uuid.UUID(normalized_id),
+                        uuid.UUID(user_id),
+                        "user",
+                        message,
+                        None,
+                    ),
+                    (
+                        uuid.uuid4(),
+                        uuid.UUID(normalized_id),
+                        uuid.UUID(user_id),
+                        "assistant",
+                        research["answer"],
+                        stable_json(research),
+                    ),
+                ],
+            )
+
+    return success_envelope(research, req_id)
 
 
 @app.post("/api/documents/upload", response_model=DocumentRecord)

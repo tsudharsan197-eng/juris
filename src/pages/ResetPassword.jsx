@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import Button from "../components/Button.jsx";
+import PasswordField from "../components/PasswordField.jsx";
 import AuthLayout from "./AuthLayout.jsx";
 import { updatePassword } from "../lib/supabase.js";
 
@@ -21,21 +22,35 @@ export default function ResetPassword() {
   }
 
   return (
-    <AuthLayout eyebrow="New password" title="Set a new secure password." aside={<ResetCopy />}>
+    <AuthLayout
+      eyebrow="New password"
+      title="Set a new secure password."
+      mobileTitle="Set a new password."
+      mobileDescription="Choose at least eight characters for your new account password."
+      aside={<ResetCopy />}
+    >
       <form className="auth-form" onSubmit={handleSubmit}>
-        <label>
-          New password
-          <input name="password" type="password" autoComplete="new-password" minLength="8" required />
-        </label>
-        <label>
-          Confirm password
-          <input name="confirm" type="password" autoComplete="new-password" minLength="8" required />
-        </label>
+        <PasswordField
+          name="password"
+          label="New password"
+          autoComplete="new-password"
+          minLength="8"
+          required
+        />
+        <PasswordField
+          name="confirm"
+          label="Confirm password"
+          autoComplete="new-password"
+          minLength="8"
+          required
+        />
         <Button type="submit">Update Password</Button>
-        {status && <p className="form-status">{status}</p>}
+        <div className={`form-status-slot${status ? " has-status" : ""}`} aria-live="polite">
+          {status && <p className="form-status">{status}</p>}
+        </div>
       </form>
       <p className="auth-switch">
-        Back to <Link to="/sign-in">sign in</Link>
+        <span>Back to account access.</span> <Link to="/sign-in">Sign in</Link>
       </p>
     </AuthLayout>
   );

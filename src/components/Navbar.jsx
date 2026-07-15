@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScroll } from "framer-motion";
-import { FileUp, Files, LogIn, LogOut, Menu, X } from "lucide-react";
+import { Compass as CompassIcon, FileUp, Files, LogIn, LogOut, Menu, X } from "lucide-react";
 import Button from "./Button.jsx";
 import ThemeToggle from "./ThemeToggle.jsx";
 import { useAuth } from "./AuthProvider.jsx";
@@ -63,6 +63,9 @@ export default function Navbar() {
         <div className="nav-status" aria-hidden="true">AI / LEGAL INTELLIGENCE / 2026</div>
         <div className="nav-actions desktop-nav-actions">
           <ThemeToggle />
+          <Button to="/juris-compass" variant="ghost">
+            <CompassIcon aria-hidden="true" size={16} /> Juris Compass
+          </Button>
           <Button to="/upload-document" variant="ghost">
             <FileUp aria-hidden="true" size={16} /> Upload
           </Button>
@@ -118,27 +121,30 @@ export default function Navbar() {
               <span>JURIS / NAVIGATION INDEX</span><b>MENU / OPEN</b>
             </motion.div>
             <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={1}>
-              <Link to="/upload-document" onClick={closeMenuForNavigation}><i aria-hidden="true">01</i><FileUp size={17} /> Upload</Link>
+              <Link to="/juris-compass" onClick={closeMenuForNavigation}><i aria-hidden="true">01</i><CompassIcon size={17} /> Juris Compass</Link>
+            </motion.div>
+            <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={2}>
+              <Link to="/upload-document" onClick={closeMenuForNavigation}><i aria-hidden="true">02</i><FileUp size={17} /> Upload</Link>
             </motion.div>
             {isSignedIn ? (
               <>
-                <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={2}>
-                  <Link to="/documents" onClick={closeMenuForNavigation}><i aria-hidden="true">02</i><Files size={17} /> Documents</Link>
-                </motion.div>
                 <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={3}>
-                  <span className="mobile-account"><i aria-hidden="true">03</i>{accountLabel}</span>
+                  <Link to="/documents" onClick={closeMenuForNavigation}><i aria-hidden="true">03</i><Files size={17} /> Documents</Link>
                 </motion.div>
                 <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={4}>
-                  <button type="button" onClick={handleSignOut}><i aria-hidden="true">04</i><LogOut size={17} /> Sign Out</button>
+                  <span className="mobile-account"><i aria-hidden="true">04</i>{accountLabel}</span>
+                </motion.div>
+                <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={5}>
+                  <button type="button" onClick={handleSignOut}><i aria-hidden="true">05</i><LogOut size={17} /> Sign Out</button>
                 </motion.div>
               </>
             ) : (
               <>
-                <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={2}>
-                  <Link to="/sign-in" onClick={closeMenuForNavigation}><i aria-hidden="true">02</i><LogIn size={17} /> Sign In</Link>
-                </motion.div>
                 <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={3}>
-                  <Link className="mobile-primary" to="/create-account" onClick={closeMenuForNavigation}><i aria-hidden="true">03</i>Create Account</Link>
+                  <Link to="/sign-in" onClick={closeMenuForNavigation}><i aria-hidden="true">03</i><LogIn size={17} /> Sign In</Link>
+                </motion.div>
+                <motion.div className="mobile-nav-item" variants={activeMobileMenuItem} custom={4}>
+                  <Link className="mobile-primary" to="/create-account" onClick={closeMenuForNavigation}><i aria-hidden="true">04</i>Create Account</Link>
                 </motion.div>
               </>
             )}

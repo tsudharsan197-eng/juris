@@ -1,0 +1,1549 @@
+/* Juris Compass: independent, jurisdiction-grounded legal research system. */
+.compass-page {
+  width: 100%;
+  height: calc(100dvh - var(--workspace-nav-height));
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 clamp(.65rem, 1.5vw, 1.25rem) clamp(.65rem, 1.4dvh, 1rem);
+  background: var(--workspace-bg);
+}
+
+.compass-product {
+  width: min(1720px, 100%);
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--workspace-border-strong);
+  background: var(--workspace-panel);
+  color: var(--workspace-text-primary);
+}
+
+.compass-product button,
+.compass-product select,
+.compass-product textarea,
+.compass-product input {
+  border-radius: 0;
+  font-family: var(--font-ui);
+}
+
+.compass-header {
+  min-height: clamp(7.2rem, 16dvh, 9rem);
+  display: grid;
+  grid-template-columns: clamp(7.2rem, 9vw, 9rem) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: clamp(1rem, 2vw, 2.5rem);
+  position: relative;
+  z-index: 12;
+  border-bottom: 1px solid var(--workspace-border-strong);
+  padding: 1.15rem clamp(1rem, 2.3vw, 2.4rem);
+  background: var(--workspace-shell);
+}
+
+.compass-header::after {
+  content: "";
+  width: 26%;
+  height: 2px;
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  background: var(--workspace-accent-source);
+  transform-origin: right;
+  animation: compass-rule-in 460ms cubic-bezier(.22, .8, .36, 1) both;
+}
+
+.compass-system-index {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-right: 1px solid var(--workspace-border);
+  padding-right: 1rem;
+}
+
+.compass-system-index span,
+.compass-panel-heading,
+.compass-global-state,
+.compass-composer-meta,
+.compass-answer-register,
+.compass-answer-section > div:first-child,
+.compass-context dt,
+.compass-empty-intro > span,
+.compass-auth-state > span {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.compass-system-index span {
+  color: var(--workspace-accent-source);
+  font-size: .52rem;
+}
+
+.compass-system-index i {
+  width: 2.4rem;
+  height: 2px;
+  display: block;
+  background: var(--workspace-accent-source);
+}
+
+.compass-header-copy {
+  min-width: 0;
+}
+
+.compass-header-copy h1 {
+  max-width: 52rem;
+  color: var(--workspace-text-primary);
+  font-family: var(--font-display);
+  font-size: clamp(2.15rem, 4.5vw, 5rem);
+  font-weight: 700;
+  line-height: .88;
+  text-transform: uppercase;
+}
+
+.compass-header-copy p {
+  max-width: 67rem;
+  margin-top: .65rem;
+  color: var(--workspace-text-secondary);
+  font-family: var(--font-body);
+  font-size: clamp(.7rem, .9vw, .86rem);
+  line-height: 1.5;
+}
+
+.compass-header-controls {
+  min-width: min(24rem, 31vw);
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) auto;
+  align-items: stretch;
+  border: 1px solid var(--workspace-border-strong);
+}
+
+.compass-header-controls label {
+  min-width: 0;
+  display: grid;
+  gap: .35rem;
+  border-right: 1px solid var(--workspace-border);
+  padding: .65rem .75rem;
+  background: var(--workspace-panel-elevated);
+}
+
+.compass-header-controls label > span,
+.compass-global-state span,
+.compass-global-state small {
+  color: var(--workspace-text-muted);
+  font-family: var(--font-ui);
+  font-size: .46rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.compass-header-controls select {
+  width: 100%;
+  min-height: 2rem;
+  border: 0;
+  padding: 0 1.6rem 0 0;
+  background: transparent;
+  color: var(--workspace-text-primary);
+  font-size: .7rem;
+  font-weight: 700;
+  outline: none;
+}
+
+.compass-header-controls select:focus-visible {
+  outline: 2px solid var(--workspace-accent-source);
+  outline-offset: 3px;
+}
+
+.compass-global-state {
+  min-width: 8.6rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: .35rem;
+  padding: .65rem .8rem;
+  background: var(--workspace-source-panel);
+}
+
+.compass-global-state span {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  color: var(--workspace-accent-source);
+}
+
+.compass-global-state small {
+  color: var(--workspace-accent-ready);
+}
+
+.compass-mobile-tools {
+  display: none;
+}
+
+.compass-layout {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: clamp(13rem, 16vw, 15.5rem) minmax(0, 1fr) clamp(16.5rem, 20vw, 20.5rem);
+  overflow: hidden;
+  background: var(--workspace-panel);
+}
+
+.compass-history,
+.compass-context {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: var(--workspace-sidebar);
+  color: var(--workspace-sidebar-text);
+}
+
+.compass-history {
+  border-right: 1px solid var(--workspace-sidebar-border);
+}
+
+.compass-context {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  border-left: 1px solid var(--workspace-border-strong);
+  background: var(--workspace-source-panel);
+  color: var(--workspace-text-primary);
+}
+
+.compass-panel-heading {
+  min-height: 3.55rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  border-bottom: 1px solid var(--workspace-sidebar-border);
+  padding: .7rem .85rem;
+  color: var(--workspace-sidebar-secondary);
+  font-size: .5rem;
+}
+
+.compass-panel-heading > div,
+.compass-panel-heading > button {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+}
+
+.compass-panel-heading > button {
+  min-height: 2rem;
+  border: 1px solid var(--workspace-sidebar-border);
+  padding: 0 .55rem;
+  background: transparent;
+  color: var(--workspace-sidebar-text);
+  font-size: .5rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease;
+}
+
+.compass-panel-heading > button:hover {
+  border-color: var(--workspace-accent-source);
+  background: var(--workspace-sidebar-hover);
+  color: var(--workspace-accent-source);
+}
+
+.compass-history-list,
+.compass-source-ledger {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--workspace-sidebar-muted) transparent;
+}
+
+.compass-history-row {
+  min-width: 0;
+  position: relative;
+  border-bottom: 1px solid var(--workspace-sidebar-border);
+  transition: background-color 180ms ease;
+}
+
+.compass-history-row::before {
+  content: "";
+  width: 2px;
+  position: absolute;
+  z-index: 2;
+  inset: 0 auto 0 0;
+  background: var(--workspace-accent-source);
+  transform: scaleY(0);
+  transform-origin: bottom;
+  transition: transform 190ms cubic-bezier(.22, .8, .36, 1);
+}
+
+.compass-history-row:hover,
+.compass-history-row.active {
+  background: var(--workspace-sidebar-hover);
+}
+
+.compass-history-row.active::before {
+  transform: scaleY(1);
+}
+
+.compass-history-select {
+  width: 100%;
+  min-width: 0;
+  min-height: 4.6rem;
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr);
+  gap: .18rem .5rem;
+  border: 0;
+  padding: .72rem 2.8rem .72rem .85rem;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.compass-history-select > span {
+  grid-row: 1 / 3;
+  color: var(--workspace-accent-primary);
+  font-size: .55rem;
+  font-weight: 700;
+}
+
+.compass-history-select strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--workspace-sidebar-text);
+  font-size: .63rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compass-history-select small {
+  overflow: hidden;
+  color: var(--workspace-sidebar-muted);
+  font-size: .45rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.compass-history-actions {
+  display: flex;
+  position: absolute;
+  z-index: 3;
+  top: .6rem;
+  right: .55rem;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.compass-history-row:hover .compass-history-actions,
+.compass-history-row:focus-within .compass-history-actions,
+.compass-history-row.active .compass-history-actions {
+  opacity: 1;
+}
+
+.compass-history-actions button,
+.compass-history-row form button {
+  width: 1.8rem;
+  height: 1.8rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--workspace-sidebar-border);
+  background: var(--workspace-sidebar);
+  color: var(--workspace-sidebar-secondary);
+}
+
+.compass-history-actions button:hover,
+.compass-history-row form button:hover {
+  border-color: var(--workspace-accent-source);
+  color: var(--workspace-accent-source);
+}
+
+.compass-history-actions button.confirm {
+  border-color: var(--workspace-accent-risk);
+  color: var(--workspace-accent-risk);
+}
+
+.compass-history-row form {
+  min-height: 4.6rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: .25rem;
+  padding: .6rem;
+}
+
+.compass-history-row form input {
+  min-width: 0;
+  min-height: 2.2rem;
+  border: 1px solid var(--workspace-accent-source);
+  padding: 0 .5rem;
+  background: var(--workspace-control);
+  color: var(--workspace-text-primary);
+  font-size: .62rem;
+  outline: none;
+}
+
+.compass-history-note,
+.compass-history-footer {
+  color: var(--workspace-sidebar-muted);
+  font-size: .55rem;
+  line-height: 1.5;
+}
+
+.compass-history-note {
+  padding: 1rem;
+}
+
+.compass-history-footer {
+  border-top: 1px solid var(--workspace-sidebar-border);
+  padding: .75rem .85rem;
+}
+
+.compass-research-canvas {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  overflow: hidden;
+  background: var(--workspace-panel);
+}
+
+.compass-thread {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 1.2rem;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--workspace-text-muted) var(--workspace-control);
+}
+
+.compass-empty-state {
+  min-height: 100%;
+  display: grid;
+  grid-template-columns: minmax(15rem, .82fr) minmax(20rem, 1.18fr);
+  align-items: stretch;
+}
+
+.compass-empty-intro {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-right: 1px solid var(--workspace-border-strong);
+  padding: clamp(1.4rem, 3vw, 3rem);
+  background: var(--workspace-panel-elevated);
+}
+
+.compass-empty-intro > span,
+.compass-auth-state > span {
+  color: var(--workspace-accent-primary);
+  font-size: .55rem;
+}
+
+.compass-empty-intro > svg {
+  margin-top: clamp(1.5rem, 4dvh, 3rem);
+  color: var(--workspace-accent-source);
+}
+
+.compass-empty-intro h2 {
+  max-width: 32rem;
+  margin-top: 1rem;
+  color: var(--workspace-text-primary);
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 4.6rem);
+  font-weight: 700;
+  line-height: .9;
+  text-transform: uppercase;
+}
+
+.compass-empty-intro p {
+  max-width: 32rem;
+  margin-top: 1rem;
+  color: var(--workspace-text-secondary);
+  font-size: .78rem;
+  line-height: 1.55;
+}
+
+.compass-suggestions {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(1rem, 2.1vw, 2rem);
+}
+
+.compass-suggestions button {
+  width: 100%;
+  min-height: 3.6rem;
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .75rem;
+  border: 0;
+  border-top: 1px solid var(--workspace-border);
+  padding: .65rem .5rem;
+  background: transparent;
+  color: var(--workspace-text-secondary);
+  text-align: left;
+  transition: color 180ms ease, background-color 180ms ease, padding 180ms ease;
+}
+
+.compass-suggestions button:last-child {
+  border-bottom: 1px solid var(--workspace-border);
+}
+
+.compass-suggestions button:hover {
+  padding-inline: .85rem;
+  background: var(--workspace-hover-bg);
+  color: var(--workspace-text-primary);
+}
+
+.compass-suggestions button span {
+  color: var(--workspace-accent-primary);
+  font-size: .55rem;
+  font-weight: 700;
+}
+
+.compass-suggestions button strong {
+  font-size: .72rem;
+  font-weight: 650;
+}
+
+.compass-suggestions button svg {
+  color: var(--workspace-accent-source);
+  transition: transform 180ms ease;
+}
+
+.compass-suggestions button:hover svg {
+  transform: translateX(4px);
+}
+
+.compass-question,
+.compass-answer,
+.compass-researching {
+  width: min(68rem, calc(100% - clamp(1.5rem, 5vw, 5rem)));
+  margin-inline: auto;
+}
+
+.compass-question {
+  display: grid;
+  grid-template-columns: clamp(5.5rem, 10vw, 8rem) minmax(0, 1fr);
+  border-block: 1px solid var(--workspace-border-strong);
+  margin-top: clamp(1.5rem, 3dvh, 2.5rem);
+  background: var(--workspace-control);
+}
+
+.compass-question > span {
+  border-right: 1px solid var(--workspace-border);
+  padding: .85rem;
+  color: var(--workspace-accent-primary);
+  font-family: var(--font-ui);
+  font-size: .5rem;
+  font-weight: 700;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+
+.compass-question p {
+  padding: .8rem 1rem;
+  color: var(--workspace-text-primary);
+  font-size: clamp(.85rem, 1vw, 1rem);
+  font-weight: 550;
+  line-height: 1.45;
+}
+
+.compass-answer {
+  margin-block: 1rem 2.5rem;
+  border: 1px solid var(--workspace-border-strong);
+  border-top: 3px solid var(--workspace-accent-source);
+  background: var(--workspace-panel-elevated);
+}
+
+.compass-answer-register {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-bottom: 1px solid var(--workspace-border-strong);
+  color: var(--workspace-text-muted);
+  font-size: .45rem;
+}
+
+.compass-answer-register span {
+  min-width: 0;
+  border-right: 1px solid var(--workspace-border);
+  padding: .7rem .75rem;
+}
+
+.compass-answer-register span:first-child {
+  color: var(--workspace-accent-source);
+}
+
+.compass-answer-register span:last-child {
+  border-right: 0;
+  color: var(--workspace-accent-ready);
+}
+
+.compass-answer-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.compass-answer-section {
+  min-width: 0;
+  border-right: 1px solid var(--workspace-border);
+  border-bottom: 1px solid var(--workspace-border);
+  padding: clamp(1rem, 2vw, 1.65rem);
+}
+
+.compass-answer-section:nth-child(2n) {
+  border-right: 0;
+}
+
+.compass-answer-section > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: .75rem;
+}
+
+.compass-answer-section > div:first-child span {
+  color: var(--workspace-accent-primary);
+  font-size: .48rem;
+}
+
+.compass-answer-section h3 {
+  color: var(--workspace-text-primary);
+  font-size: .68rem;
+  font-weight: 750;
+}
+
+.compass-answer-section > p {
+  margin-top: .85rem;
+  color: var(--workspace-text-secondary);
+  font-family: var(--font-body);
+  font-size: .77rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.compass-inline-sources {
+  display: grid;
+  gap: .5rem;
+  margin-top: .85rem;
+}
+
+.compass-inline-sources a {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .55rem;
+  border-left: 2px solid var(--workspace-accent-source);
+  padding: .55rem .65rem;
+  background: var(--workspace-source-panel);
+  color: var(--workspace-text-primary);
+  transition: background-color 160ms ease, padding 160ms ease;
+}
+
+.compass-inline-sources a:hover {
+  padding-left: .9rem;
+  background: var(--workspace-hover-bg);
+}
+
+.compass-inline-sources a span,
+.compass-inline-sources a small {
+  overflow: hidden;
+  color: var(--workspace-accent-source);
+  font-size: .43rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compass-inline-sources a strong {
+  overflow: hidden;
+  font-size: .58rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compass-answer-disclaimer {
+  border-top: 1px solid var(--workspace-border-strong);
+  padding: .75rem 1rem;
+  color: var(--workspace-text-muted);
+  font-size: .55rem;
+  line-height: 1.5;
+}
+
+.compass-researching {
+  display: grid;
+  grid-template-columns: minmax(12rem, .8fr) minmax(18rem, 1.2fr);
+  margin-block: 1rem 2rem;
+  border: 1px solid var(--workspace-border-strong);
+  background: var(--workspace-shell);
+}
+
+.compass-researching > div {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-right: 1px solid var(--workspace-border-strong);
+  padding: 1.4rem;
+}
+
+.compass-researching > div svg {
+  color: var(--workspace-accent-source);
+  animation: compass-mechanical-turn 2.6s steps(8, end) infinite;
+}
+
+.compass-researching > div span {
+  margin-top: 1.2rem;
+  color: var(--workspace-accent-source);
+  font-family: var(--font-ui);
+  font-size: .48rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.compass-researching h3 {
+  margin-top: .45rem;
+  color: var(--workspace-text-primary);
+  font-family: var(--font-display);
+  font-size: clamp(1.7rem, 3vw, 3.3rem);
+  line-height: .9;
+  text-transform: uppercase;
+}
+
+.compass-researching ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.compass-researching li {
+  min-height: 3rem;
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) 3.5rem;
+  align-items: center;
+  border-bottom: 1px solid var(--workspace-border);
+  padding: .5rem .75rem;
+  color: var(--workspace-text-muted);
+}
+
+.compass-researching li:last-child {
+  border-bottom: 0;
+}
+
+.compass-researching li span,
+.compass-researching li strong {
+  font-family: var(--font-ui);
+  font-size: .52rem;
+  text-transform: uppercase;
+}
+
+.compass-researching li i {
+  height: 2px;
+  background: var(--workspace-border-strong);
+  transform: scaleX(.22);
+  transform-origin: left;
+  transition: background-color 180ms ease, transform 300ms cubic-bezier(.22, .8, .36, 1);
+}
+
+.compass-researching li.active {
+  color: var(--workspace-text-primary);
+  background: var(--workspace-source-panel);
+}
+
+.compass-researching li.active i {
+  background: var(--workspace-accent-source);
+  transform: scaleX(.72);
+  animation: compass-stage-scan 1.2s cubic-bezier(.22, .8, .36, 1) infinite alternate;
+}
+
+.compass-researching li.complete {
+  color: var(--workspace-accent-ready);
+}
+
+.compass-researching li.complete i {
+  background: var(--workspace-accent-ready);
+  transform: scaleX(1);
+}
+
+.compass-inline-status {
+  width: min(68rem, calc(100% - 2rem));
+  margin: 1rem auto;
+  border-left: 2px solid var(--workspace-accent-source);
+  padding: .85rem 1rem;
+  background: var(--workspace-source-panel);
+  color: var(--workspace-accent-source);
+  font-family: var(--font-ui);
+  font-size: .58rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.compass-error {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .75rem;
+  border-top: 1px solid var(--workspace-accent-risk);
+  padding: .65rem .85rem;
+  background: var(--workspace-risk-panel);
+}
+
+.compass-error span,
+.compass-error button {
+  color: var(--workspace-accent-risk);
+  font-family: var(--font-ui);
+  font-size: .5rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.compass-error p {
+  color: var(--workspace-text-secondary);
+  font-size: .6rem;
+}
+
+.compass-error button {
+  min-height: 2rem;
+  border: 1px solid var(--workspace-accent-risk);
+  padding: 0 .65rem;
+  background: transparent;
+}
+
+.compass-composer {
+  position: relative;
+  z-index: 9;
+  border-top: 1px solid var(--workspace-border-strong);
+  padding: .75rem clamp(.75rem, 1.5vw, 1.25rem) max(.65rem, env(safe-area-inset-bottom));
+  background: var(--workspace-shell);
+}
+
+.compass-composer-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: .45rem;
+  color: var(--workspace-text-muted);
+  font-size: .46rem;
+}
+
+.compass-composer-meta > span {
+  color: var(--workspace-accent-primary);
+}
+
+.compass-composer-input {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  border: 1px solid var(--workspace-border-strong);
+  background: var(--workspace-panel-elevated);
+}
+
+.compass-composer textarea {
+  min-width: 0;
+  min-height: 3.2rem;
+  max-height: 8rem;
+  resize: vertical;
+  border: 0;
+  padding: .95rem 1rem;
+  background: transparent;
+  color: var(--workspace-text-primary);
+  font-family: var(--font-body);
+  font-size: .78rem;
+  line-height: 1.35;
+  outline: none;
+}
+
+.compass-composer textarea::placeholder {
+  color: var(--workspace-text-muted);
+}
+
+.compass-composer-input:focus-within {
+  border-color: var(--workspace-accent-source);
+  box-shadow: inset 0 -2px 0 var(--workspace-accent-source);
+}
+
+.compass-composer-input > button {
+  min-width: 9.5rem;
+  min-height: 3.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .65rem;
+  border: 0;
+  border-left: 1px solid var(--workspace-border-strong);
+  padding: 0 .9rem;
+  background: var(--workspace-accent-source);
+  color: var(--workspace-on-accent);
+  font-size: .57rem;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+.compass-composer-input > button:hover:not(:disabled) {
+  background: var(--workspace-accent-primary);
+}
+
+.compass-composer-input > button:disabled {
+  background: var(--workspace-control);
+  color: var(--workspace-text-muted);
+  cursor: not-allowed;
+}
+
+.compass-composer > p {
+  margin-top: .4rem;
+  color: var(--workspace-text-muted);
+  font-size: .49rem;
+  line-height: 1.35;
+}
+
+.compass-context .compass-panel-heading {
+  border-color: var(--workspace-border);
+  color: var(--workspace-text-secondary);
+}
+
+.compass-context dl {
+  margin: 0;
+}
+
+.compass-context dl > div {
+  display: grid;
+  grid-template-columns: minmax(6rem, .85fr) minmax(0, 1.15fr);
+  gap: .6rem;
+  border-bottom: 1px solid var(--workspace-border);
+  padding: .65rem .8rem;
+}
+
+.compass-context dt {
+  color: var(--workspace-text-muted);
+  font-size: .43rem;
+}
+
+.compass-context dd {
+  margin: 0;
+  color: var(--workspace-text-secondary);
+  font-family: var(--font-body);
+  font-size: .58rem;
+  line-height: 1.4;
+}
+
+.compass-context dd.verified,
+.compass-context dd.ready {
+  color: var(--workspace-accent-ready);
+}
+
+.compass-source-ledger {
+  padding: .75rem;
+}
+
+.compass-source-ledger > span {
+  color: var(--workspace-accent-source);
+  font-family: var(--font-ui);
+  font-size: .46rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.compass-source-ledger > a {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+  gap: .2rem .5rem;
+  border-bottom: 1px solid var(--workspace-border);
+  padding: .7rem .2rem;
+  color: var(--workspace-text-primary);
+}
+
+.compass-source-ledger > a:hover strong {
+  color: var(--workspace-accent-source);
+}
+
+.compass-source-ledger > a small {
+  grid-row: 1 / 3;
+  color: var(--workspace-accent-primary);
+  font-family: var(--font-ui);
+  font-size: .45rem;
+}
+
+.compass-source-ledger > a strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: .55rem;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 160ms ease;
+}
+
+.compass-source-ledger > a span,
+.compass-source-ledger > p {
+  overflow: hidden;
+  color: var(--workspace-text-muted);
+  font-size: .48rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+}
+
+.compass-source-ledger > a svg {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  align-self: center;
+  color: var(--workspace-accent-source);
+}
+
+.compass-source-ledger > p {
+  margin-top: 1rem;
+}
+
+.compass-context-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: .65rem;
+  border-top: 1px solid var(--workspace-border);
+  padding: .8rem;
+  color: var(--workspace-text-muted);
+}
+
+.compass-context-note svg {
+  color: var(--workspace-accent-source);
+}
+
+.compass-context-note p {
+  font-size: .5rem;
+  line-height: 1.5;
+}
+
+.compass-auth-state {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 42rem) auto;
+  align-content: center;
+  align-items: center;
+  gap: .8rem 1.25rem;
+  padding: clamp(1.5rem, 5vw, 5rem);
+  background: var(--workspace-panel);
+}
+
+.compass-auth-state > span {
+  grid-column: 2;
+}
+
+.compass-auth-state > svg {
+  grid-row: 2 / 4;
+  color: var(--workspace-accent-source);
+}
+
+.compass-auth-state h2 {
+  color: var(--workspace-text-primary);
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 6vw, 6.5rem);
+  line-height: .86;
+  text-transform: uppercase;
+}
+
+.compass-auth-state p {
+  grid-column: 2;
+  max-width: 36rem;
+  color: var(--workspace-text-secondary);
+  font-size: .8rem;
+  line-height: 1.5;
+}
+
+.compass-auth-state .btn {
+  grid-column: 3;
+  grid-row: 2 / 4;
+  min-height: 3.4rem;
+}
+
+.compass-auth-state.is-loading > svg {
+  animation: compass-mechanical-turn 2.6s steps(8, end) infinite;
+}
+
+.compass-drawer-scrim {
+  display: none;
+}
+
+.workspace-route-shell .workspace-panel-compass {
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
+.workspace-route-shell .workspace-panel-compass .workspace-tool-stage {
+  height: 100%;
+  min-height: 0;
+}
+
+.compass-product.is-embedded {
+  border: 0;
+}
+
+.compass-product.is-embedded .compass-header {
+  min-height: clamp(7rem, 16dvh, 8.25rem);
+  position: relative;
+  grid-template-columns: clamp(5rem, 8vw, 7.5rem) minmax(0, 1fr) auto;
+}
+
+.compass-product.is-embedded .compass-header-copy h1 {
+  font-size: clamp(2rem, 3.3vw, 3.65rem);
+}
+
+.compass-product.is-embedded .compass-header-copy p {
+  max-width: 52rem;
+  font-size: .7rem;
+}
+
+.workspace-route-shell .workspace-tab[data-tool="compass"] .workspace-tab-index,
+.workspace-route-shell .workspace-tab[data-tool="compass"] .workspace-tab-icon {
+  color: var(--workspace-accent-source);
+}
+
+.workspace-route-shell .workspace-tab[data-tool="compass"].active .workspace-tab-active-surface {
+  border-left-color: var(--workspace-accent-source);
+  box-shadow: inset 0 -1px 0 var(--workspace-accent-source);
+}
+
+.workspace-route-shell .workspace-grid[data-active-tool="compass"] .workspace-tool-stage::before {
+  background: var(--workspace-accent-source);
+}
+
+@keyframes compass-rule-in {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes compass-mechanical-turn {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes compass-stage-scan {
+  from { transform: scaleX(.38); }
+  to { transform: scaleX(1); }
+}
+
+@media (max-width: 1180px) {
+  .compass-layout {
+    grid-template-columns: clamp(12.5rem, 20vw, 14.5rem) minmax(0, 1fr);
+  }
+
+  .compass-context {
+    width: min(22rem, 88vw);
+    position: absolute;
+    z-index: 31;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    transform: translateX(102%);
+    transition: transform 260ms cubic-bezier(.22, .8, .36, 1);
+  }
+
+  .compass-context.open {
+    transform: translateX(0);
+  }
+
+  .compass-mobile-tools {
+    grid-column: 1 / -1;
+    display: flex;
+    border-top: 1px solid var(--workspace-border);
+  }
+
+  .compass-mobile-tools button {
+    min-height: 2.35rem;
+    display: inline-flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    gap: .4rem;
+    border: 0;
+    border-right: 1px solid var(--workspace-border);
+    background: var(--workspace-control);
+    color: var(--workspace-text-secondary);
+    font-size: .5rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .compass-mobile-tools button:last-child {
+    border-right: 0;
+  }
+
+  .compass-header-controls {
+    grid-template-columns: minmax(9.5rem, 1fr) auto;
+  }
+
+  .compass-drawer-scrim.visible {
+    display: block;
+    position: absolute;
+    z-index: 30;
+    inset: 0;
+    border: 0;
+    background: rgba(4, 8, 14, .58);
+  }
+}
+
+@media (max-width: 900px) {
+  .compass-page {
+    padding-inline: .55rem;
+  }
+
+  .compass-header,
+  .compass-product.is-embedded .compass-header {
+    min-height: auto;
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+    gap: .75rem;
+    padding: .8rem;
+  }
+
+  .compass-header-copy h1,
+  .compass-product.is-embedded .compass-header-copy h1 {
+    font-size: clamp(1.65rem, 6vw, 2.75rem);
+  }
+
+  .compass-header-copy p {
+    display: none;
+  }
+
+  .compass-header-controls {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .compass-layout {
+    grid-template-columns: minmax(0, 1fr);
+    position: relative;
+  }
+
+  .compass-history {
+    width: min(21rem, 88vw);
+    position: absolute;
+    z-index: 32;
+    inset: 0 auto 0 0;
+    transform: translateX(-102%);
+    transition: transform 260ms cubic-bezier(.22, .8, .36, 1);
+  }
+
+  .compass-history.open {
+    transform: translateX(0);
+  }
+
+  .compass-empty-state {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .compass-empty-intro {
+    min-height: 16rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--workspace-border-strong);
+  }
+
+  .compass-suggestions {
+    justify-content: flex-start;
+  }
+
+  .compass-answer-register {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .compass-answer-register span:nth-child(2) {
+    border-right: 0;
+  }
+
+  .compass-answer-register span:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--workspace-border);
+  }
+
+  .compass-answer-sections {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .compass-answer-section,
+  .compass-answer-section:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .compass-researching {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .compass-researching > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--workspace-border-strong);
+  }
+}
+
+@media (max-width: 620px) {
+  .compass-page {
+    height: calc(100dvh - var(--workspace-nav-height));
+    padding: 0;
+  }
+
+  .compass-product {
+    border-inline: 0;
+    border-bottom: 0;
+  }
+
+  .compass-header,
+  .compass-product.is-embedded .compass-header {
+    grid-template-columns: 3.7rem minmax(0, 1fr);
+    gap: .6rem;
+    padding: .65rem .7rem;
+  }
+
+  .compass-system-index {
+    padding-right: .55rem;
+  }
+
+  .compass-system-index span {
+    font-size: .43rem;
+  }
+
+  .compass-system-index i {
+    width: 1.7rem;
+  }
+
+  .compass-header-copy h1,
+  .compass-product.is-embedded .compass-header-copy h1 {
+    font-size: clamp(1.32rem, 7vw, 1.9rem);
+    line-height: .92;
+  }
+
+  .compass-header-controls label {
+    padding: .45rem .6rem;
+  }
+
+  .compass-header-controls select {
+    min-height: 1.8rem;
+    font-size: .66rem;
+  }
+
+  .compass-global-state {
+    min-width: 7.4rem;
+    padding: .45rem .55rem;
+  }
+
+  .compass-global-state span,
+  .compass-global-state small,
+  .compass-header-controls label > span {
+    font-size: .4rem;
+  }
+
+  .compass-mobile-tools button {
+    min-height: 2.75rem;
+  }
+
+  .compass-empty-intro {
+    min-height: auto;
+    padding: 1.1rem;
+  }
+
+  .compass-empty-intro > svg {
+    margin-top: .85rem;
+  }
+
+  .compass-empty-intro h2 {
+    margin-top: .65rem;
+    font-size: clamp(1.65rem, 9vw, 2.45rem);
+  }
+
+  .compass-empty-intro p {
+    margin-top: .6rem;
+    font-size: .7rem;
+  }
+
+  .compass-suggestions {
+    padding: .6rem .75rem 1rem;
+  }
+
+  .compass-suggestions button {
+    min-height: 3.2rem;
+    grid-template-columns: 1.7rem minmax(0, 1fr) auto;
+    padding: .55rem .25rem;
+  }
+
+  .compass-suggestions button strong {
+    font-size: .66rem;
+  }
+
+  .compass-question,
+  .compass-answer,
+  .compass-researching {
+    width: calc(100% - 1rem);
+  }
+
+  .compass-question {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: .75rem;
+  }
+
+  .compass-question > span {
+    border-right: 0;
+    border-bottom: 1px solid var(--workspace-border);
+    padding: .5rem .65rem;
+  }
+
+  .compass-question p {
+    padding: .65rem;
+    font-size: .82rem;
+  }
+
+  .compass-answer {
+    margin-block: .6rem 1rem;
+  }
+
+  .compass-answer-register {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .compass-answer-register span,
+  .compass-answer-register span:nth-child(2) {
+    border-right: 0;
+    border-bottom: 1px solid var(--workspace-border);
+    padding: .5rem .65rem;
+  }
+
+  .compass-answer-register span:last-child {
+    border-bottom: 0;
+  }
+
+  .compass-answer-section {
+    padding: .9rem .75rem;
+  }
+
+  .compass-answer-section > p {
+    font-size: .76rem;
+  }
+
+  .compass-inline-sources a {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .compass-inline-sources a span {
+    grid-column: 1;
+  }
+
+  .compass-inline-sources a strong {
+    grid-column: 1;
+    white-space: normal;
+  }
+
+  .compass-inline-sources a svg {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
+
+  .compass-researching > div {
+    padding: .9rem;
+  }
+
+  .compass-researching h3 {
+    font-size: 1.75rem;
+  }
+
+  .compass-researching li {
+    min-height: 2.6rem;
+  }
+
+  .compass-error {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .compass-error span {
+    grid-column: 1 / -1;
+  }
+
+  .compass-composer {
+    padding: .55rem .55rem max(.5rem, env(safe-area-inset-bottom));
+  }
+
+  .compass-composer-meta {
+    font-size: .4rem;
+  }
+
+  .compass-composer-input {
+    grid-template-columns: minmax(0, 1fr) 3.2rem;
+  }
+
+  .compass-composer textarea {
+    min-height: 3rem;
+    padding: .78rem;
+    font-size: 1rem;
+  }
+
+  .compass-composer-input > button {
+    min-width: 0;
+    min-height: 3rem;
+    padding: 0;
+  }
+
+  .compass-composer-input > button span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .compass-composer > p {
+    font-size: .44rem;
+  }
+
+  .compass-auth-state {
+    grid-template-columns: minmax(0, 1fr);
+    align-content: center;
+    padding: 1.2rem;
+  }
+
+  .compass-auth-state > span,
+  .compass-auth-state > svg,
+  .compass-auth-state h2,
+  .compass-auth-state p,
+  .compass-auth-state .btn {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .compass-auth-state h2 {
+    font-size: clamp(2.2rem, 12vw, 3.7rem);
+  }
+
+  .compass-auth-state .btn {
+    width: 100%;
+    margin-top: .5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compass-header::after,
+  .compass-researching > div svg,
+  .compass-auth-state.is-loading > svg,
+  .compass-researching li.active i {
+    animation: none !important;
+  }
+
+  .compass-context,
+  .compass-history,
+  .compass-history-row::before,
+  .compass-suggestions button,
+  .compass-suggestions button svg {
+    transition-duration: .001ms !important;
+  }
+}

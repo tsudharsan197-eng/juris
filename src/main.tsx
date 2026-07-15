@@ -11,12 +11,16 @@ import ResetPassword from "./pages/ResetPassword.jsx";
 import UploadDocument from "./pages/UploadDocument.jsx";
 import Documents from "./pages/Documents.jsx";
 import DocumentWorkspace from "./pages/DocumentWorkspace.jsx";
+import JurisCompassPage from "./pages/JurisCompassPage.jsx";
 import { ThemeProvider } from "./components/ThemeProvider.jsx";
 import { AuthProvider } from "./components/AuthProvider.jsx";
 import ExperienceShell from "./components/ExperienceShell";
 import useMediaQuery from "./hooks/useMediaQuery";
 import "./styles.css";
 import "./editorial.css";
+import "./mobile.css";
+import "./compass.css";
+import "./workspace-modern.css";
 
 function RoutedExperience() {
   const location = useLocation();
@@ -44,6 +48,7 @@ function RoutedExperience() {
             <Route path="/upload-document" element={<UploadDocument />} />
             <Route path="/documents" element={<Documents />} />
             <Route path="/documents/:documentId/workspace" element={<DocumentWorkspace />} />
+            <Route path="/juris-compass" element={<JurisCompassPage />} />
           </Routes>
         </motion.div>
       </AnimatePresence>

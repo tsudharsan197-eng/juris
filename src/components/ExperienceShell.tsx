@@ -12,9 +12,11 @@ export default function ExperienceShell({ children }: ExperienceShellProps) {
   const lenisRef = useRef<Lenis | null>(null);
   const location = useLocation();
   const isDocumentWorkspace = /^\/documents\/[^/]+\/workspace\/?$/.test(location.pathname);
+  const isCompassWorkspace = /^\/juris-compass\/?$/.test(location.pathname);
+  const isApplicationShell = isDocumentWorkspace || isCompassWorkspace;
 
   useEffect(() => {
-    if (isDocumentWorkspace || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
+    if (isApplicationShell || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
 
     const lenis = new Lenis({
       duration: 1.15,
@@ -39,10 +41,10 @@ export default function ExperienceShell({ children }: ExperienceShellProps) {
       lenis.destroy();
       lenisRef.current = null;
     };
-  }, [isDocumentWorkspace]);
+  }, [isApplicationShell]);
 
   useEffect(() => {
-    if (!isDocumentWorkspace) return undefined;
+    if (!isApplicationShell) return undefined;
 
     document.documentElement.classList.add("workspace-scroll-locked");
     document.body.classList.add("workspace-scroll-locked");
@@ -52,7 +54,7 @@ export default function ExperienceShell({ children }: ExperienceShellProps) {
       document.documentElement.classList.remove("workspace-scroll-locked");
       document.body.classList.remove("workspace-scroll-locked");
     };
-  }, [isDocumentWorkspace]);
+  }, [isApplicationShell]);
 
   useEffect(() => {
     const restoreScroll = (event: Event) => {
@@ -68,7 +70,7 @@ export default function ExperienceShell({ children }: ExperienceShellProps) {
 
   return (
     <MotionConfig reducedMotion="user" transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}>
-      <div className={`experience-shell${isDocumentWorkspace ? " workspace-route-shell" : ""}`}>
+      <div className={`experience-shell${isApplicationShell ? " workspace-route-shell" : ""}${isDocumentWorkspace ? " document-workspace-route-shell" : ""}${isCompassWorkspace ? " compass-route-shell" : ""}`}>
         {children}
         <CustomCursor />
       </div>

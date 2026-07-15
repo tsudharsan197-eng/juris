@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import Button from "../components/Button.jsx";
+import PasswordField from "../components/PasswordField.jsx";
 import AuthLayout from "./AuthLayout.jsx";
 import { signUpWithEmail } from "../lib/supabase.js";
 
@@ -22,6 +23,8 @@ export default function CreateAccount() {
     <AuthLayout
       eyebrow="Create account"
       title="Start decoding legal documents."
+      mobileTitle="Create your account."
+      mobileDescription="Set up secure access to your Juris legal workspace."
       aside={<AuthAside />}
     >
       <form className="auth-form" onSubmit={handleSubmit}>
@@ -33,15 +36,20 @@ export default function CreateAccount() {
           Email
           <input name="email" type="email" autoComplete="email" required />
         </label>
-        <label>
-          Password
-          <input name="password" type="password" autoComplete="new-password" minLength="8" required />
-        </label>
+        <PasswordField
+          name="password"
+          label="Password"
+          autoComplete="new-password"
+          minLength="8"
+          required
+        />
         <Button type="submit">Create Account</Button>
-        {status && <p className="form-status">{status}</p>}
+        <div className={`form-status-slot${status ? " has-status" : ""}`} aria-live="polite">
+          {status && <p className="form-status">{status}</p>}
+        </div>
       </form>
       <p className="auth-switch">
-        Already have an account? <Link to="/sign-in">Sign in</Link>
+        <span>Already have an account?</span> <Link to="/sign-in">Sign in</Link>
       </p>
     </AuthLayout>
   );

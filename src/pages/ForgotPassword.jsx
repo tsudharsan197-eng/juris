@@ -15,17 +15,25 @@ export default function ForgotPassword() {
   }
 
   return (
-    <AuthLayout eyebrow="Reset access" title="Recover your Juris account." aside={<ResetAside />}>
+    <AuthLayout
+      eyebrow="Reset access"
+      title="Recover your Juris account."
+      mobileTitle="Recover your account."
+      mobileDescription="We will send a secure recovery link to your email address."
+      aside={<ResetAside />}
+    >
       <form className="auth-form" onSubmit={handleSubmit}>
         <label>
           Email
           <input name="email" type="email" autoComplete="email" required />
         </label>
         <Button type="submit">Send Reset Link</Button>
-        {status && <p className="form-status">{status}</p>}
+        <div className={`form-status-slot${status ? " has-status" : ""}`} aria-live="polite">
+          {status && <p className="form-status">{status}</p>}
+        </div>
       </form>
       <p className="auth-switch">
-        Remembered it? <Link to="/sign-in">Sign in</Link>
+        <span>Remembered it?</span> <Link to="/sign-in">Sign in</Link>
       </p>
     </AuthLayout>
   );

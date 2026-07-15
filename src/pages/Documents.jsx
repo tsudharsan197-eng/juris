@@ -108,7 +108,16 @@ export default function Documents() {
           </div>
 
           {status === "loading" && <p className="documents-message">Loading documents...</p>}
-          {status === "error" && <p className="documents-message error">{message}</p>}
+          {status === "error" && (
+            <div className="documents-message error documents-error-state">
+              <span>{message}</span>
+              {!authLoading && !isSignedIn && (
+                <Button className="mobile-only-auth-action" to="/sign-in" variant="secondary">
+                  Sign In
+                </Button>
+              )}
+            </div>
+          )}
           {actionError && <p className="documents-message error">{actionError}</p>}
           {status === "ready" && documents.length === 0 && (
             <p className="documents-message">No documents yet. Upload your first contract.</p>

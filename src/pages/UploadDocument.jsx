@@ -161,7 +161,7 @@ export default function UploadDocument() {
             </p>
           </div>
 
-          <div className="upload-card-shell reveal delay-1">
+          <div className={`upload-card-shell reveal delay-1${isLocked ? " is-locked" : ""}`}>
             {isLocked && (
               <div className="upload-auth-lock" role="status">
                 <span>Authentication required</span>

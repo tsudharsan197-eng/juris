@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Button from "../components/Button.jsx";
+import PasswordField from "../components/PasswordField.jsx";
 import AuthLayout from "./AuthLayout.jsx";
 import { signInWithEmail } from "../lib/supabase.js";
 
@@ -21,24 +22,34 @@ export default function SignIn() {
   }
 
   return (
-    <AuthLayout eyebrow="Sign in" title="Return to your legal workspace." aside={<SignInAside />}>
+    <AuthLayout
+      eyebrow="Sign in"
+      title="Return to your legal workspace."
+      mobileTitle="Sign in to Juris."
+      mobileDescription="Access your documents and continue your legal analysis."
+      aside={<SignInAside />}
+    >
       <form className="auth-form" onSubmit={handleSubmit}>
         <label>
           Email
           <input name="email" type="email" autoComplete="email" required />
         </label>
-        <label>
-          Password
-          <input name="password" type="password" autoComplete="current-password" required />
-        </label>
+        <PasswordField
+          name="password"
+          label="Password"
+          autoComplete="current-password"
+          required
+        />
         <div className="form-row">
           <Link to="/forgot-password">Forgot password?</Link>
         </div>
         <Button type="submit">Sign In</Button>
-        {status && <p className="form-status">{status}</p>}
+        <div className={`form-status-slot${status ? " has-status" : ""}`} aria-live="polite">
+          {status && <p className="form-status">{status}</p>}
+        </div>
       </form>
       <p className="auth-switch">
-        New to Juris? <Link to="/create-account">Create account</Link>
+        <span>New to Juris?</span> <Link to="/create-account">Create account</Link>
       </p>
     </AuthLayout>
   );
