@@ -1,0 +1,272 @@
+[
+  {
+    "page": 1,
+    "variant": "original",
+    "psm": 3,
+    "characters": 1702,
+    "words": 265,
+    "lines": 57,
+    "confidence": 0.885
+  },
+  {
+    "page": 1,
+    "variant": "original",
+    "psm": 4,
+    "characters": 1567,
+    "words": 238,
+    "lines": 34,
+    "confidence": 0.9084
+  },
+  {
+    "page": 1,
+    "variant": "original",
+    "psm": 6,
+    "characters": 1535,
+    "words": 244,
+    "lines": 34,
+    "confidence": 0.8355
+  },
+  {
+    "page": 1,
+    "variant": "original",
+    "psm": 11,
+    "characters": 1945,
+    "words": 349,
+    "lines": 151,
+    "confidence": 0.7968
+  },
+  {
+    "page": 1,
+    "variant": "original",
+    "psm": 12,
+    "characters": 2038,
+    "words": 369,
+    "lines": 177,
+    "confidence": 0.7913
+  },
+  {
+    "page": 1,
+    "variant": "current",
+    "psm": 3,
+    "characters": 416,
+    "words": 73,
+    "lines": 7,
+    "confidence": 0.6526
+  },
+  {
+    "page": 1,
+    "variant": "current",
+    "psm": 4,
+    "characters": 475,
+    "words": 87,
+    "lines": 11,
+    "confidence": 0.5961
+  },
+  {
+    "page": 1,
+    "variant": "current",
+    "psm": 6,
+    "characters": 3550,
+    "words": 871,
+    "lines": 47,
+    "confidence": 0.3419
+  },
+  {
+    "page": 1,
+    "variant": "current",
+    "psm": 11,
+    "characters": 2420,
+    "words": 511,
+    "lines": 328,
+    "confidence": 0.6007
+  },
+  {
+    "page": 1,
+    "variant": "current",
+    "psm": 12,
+    "characters": 2397,
+    "words": 511,
+    "lines": 360,
+    "confidence": 0.6099
+  },
+  {
+    "page": 2,
+    "variant": "original",
+    "psm": 3,
+    "characters": 3192,
+    "words": 526,
+    "lines": 43,
+    "confidence": 0.9463
+  },
+  {
+    "page": 2,
+    "variant": "original",
+    "psm": 4,
+    "characters": 3192,
+    "words": 526,
+    "lines": 43,
+    "confidence": 0.9463
+  },
+  {
+    "page": 2,
+    "variant": "original",
+    "psm": 6,
+    "characters": 3195,
+    "words": 527,
+    "lines": 43,
+    "confidence": 0.9455
+  },
+  {
+    "page": 2,
+    "variant": "original",
+    "psm": 11,
+    "characters": 3175,
+    "words": 521,
+    "lines": 43,
+    "confidence": 0.9476
+  },
+  {
+    "page": 2,
+    "variant": "original",
+    "psm": 12,
+    "characters": 3175,
+    "words": 521,
+    "lines": 43,
+    "confidence": 0.9476
+  },
+  {
+    "page": 2,
+    "variant": "current",
+    "psm": 3,
+    "characters": 1050,
+    "words": 178,
+    "lines": 13,
+    "confidence": 0.8117
+  },
+  {
+    "page": 2,
+    "variant": "current",
+    "psm": 4,
+    "characters": 1054,
+    "words": 179,
+    "lines": 13,
+    "confidence": 0.8097
+  },
+  {
+    "page": 2,
+    "variant": "current",
+    "psm": 6,
+    "characters": 1630,
+    "words": 296,
+    "lines": 17,
+    "confidence": 0.6939
+  },
+  {
+    "page": 2,
+    "variant": "current",
+    "psm": 11,
+    "characters": 3226,
+    "words": 533,
+    "lines": 77,
+    "confidence": 0.8062
+  },
+  {
+    "page": 2,
+    "variant": "current",
+    "psm": 12,
+    "characters": 3220,
+    "words": 530,
+    "lines": 75,
+    "confidence": 0.8069
+  },
+  {
+    "page": 3,
+    "variant": "original",
+    "psm": 3,
+    "characters": 2475,
+    "words": 419,
+    "lines": 40,
+    "confidence": 0.9372
+  },
+  {
+    "page": 3,
+    "variant": "original",
+    "psm": 4,
+    "characters": 2472,
+    "words": 420,
+    "lines": 41,
+    "confidence": 0.9385
+  },
+  {
+    "page": 3,
+    "variant": "original",
+    "psm": 6,
+    "characters": 2498,
+    "words": 425,
+    "lines": 39,
+    "confidence": 0.9316
+  },
+  {
+    "page": 3,
+    "variant": "original",
+    "psm": 11,
+    "characters": 2458,
+    "words": 415,
+    "lines": 46,
+    "confidence": 0.9355
+  },
+  {
+    "page": 3,
+    "variant": "original",
+    "psm": 12,
+    "characters": 2458,
+    "words": 415,
+    "lines": 46,
+    "confidence": 0.9355
+  },
+  {
+    "page": 3,
+    "variant": "current",
+    "psm": 3,
+    "characters": 178,
+    "words": 35,
+    "lines": 2,
+    "confidence": 0.8004
+  },
+  {
+    "page": 3,
+    "variant": "current",
+    "psm": 4,
+    "characters": 178,
+    "words": 35,
+    "lines": 2,
+    "confidence": 0.8004
+  },
+  {
+    "page": 3,
+    "variant": "current",
+    "psm": 6,
+    "characters": 70,
+    "words": 20,
+    "lines": 3,
+    "confidence": 0.1788
+  },
+  {
+    "page": 3,
+    "variant": "current",
+    "psm": 11,
+    "characters": 2354,
+    "words": 396,
+    "lines": 69,
+    "confidence": 0.823
+  },
+  {
+    "page": 3,
+    "variant": "current",
+    "psm": 12,
+    "characters": 2345,
+    "words": 393,
+    "lines": 67,
+    "confidence": 0.8237
+  }
+]

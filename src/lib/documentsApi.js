@@ -135,7 +135,6 @@ export async function uploadDocumentFile(file, onProgress) {
   const token = await accessToken();
   const formData = new FormData();
   formData.append("file", file);
-  onProgress?.(18);
   const endpoint = "/api/documents/upload";
   const requestLog = startRequestLog(endpoint, { method: "POST" });
 
@@ -153,8 +152,6 @@ export async function uploadDocumentFile(file, onProgress) {
     throw backendUnavailableError(error, endpoint);
   }
 
-  onProgress?.(82);
-
   const body = await response.json().catch(() => ({}));
   finishRequestLog(requestLog, response, body);
   if (!response.ok) {
@@ -163,6 +160,12 @@ export async function uploadDocumentFile(file, onProgress) {
 
   onProgress?.(100);
   return body;
+}
+
+export function reprocessDocument(documentId) {
+  return apiFetch(`/api/documents/${documentId}/reprocess`, {
+    method: "POST",
+  });
 }
 
 export function listDocuments() {

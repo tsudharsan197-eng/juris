@@ -23,10 +23,35 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Uplo
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, OpenAIError
-from pypdf import PdfReader
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from .services.document_processing_service import (
+    DocumentChunk,
+    build_page_aware_chunks,
+    extraction_metadata,
+    page_metadata,
+    validate_chunk_coverage,
+    validate_chunks,
+    validate_embeddings,
+)
+from .services.ocr_service import OCRTimeoutError, OCRUnavailableError, tesseract_available
+from .services.pdf_extraction_service import (
+    DocumentExtractionError,
+    DocumentValidationError,
+    ExtractionSettings,
+    extract_hybrid_pdf,
+    inspect_native_pdf,
+    validate_pdf_extraction,
+)
+from .services.structured_analysis_service import (
+    StructuredAnalysisError,
+    run_clause_analysis,
+    run_risk_analysis,
+)
 
 load_dotenv()
+
+OCR_SETTINGS = ExtractionSettings.from_env()
 
 MAX_FILE_SIZE = 25 * 1024 * 1024
 CHUNK_SIZE = 1000
@@ -38,6 +63,7 @@ OPENAI_COMPASS_MODEL = os.getenv("OPENAI_COMPASS_MODEL", OPENAI_CHAT_MODEL)
 EMBEDDING_DIMENSIONS = 1536
 EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "16"))
 AI_TIMEOUT_SECONDS = int(os.getenv("OPENAI_TIMEOUT_SECONDS", os.getenv("AI_TIMEOUT_SECONDS", "120")))
+ANALYSIS_MAX_OUTPUT_TOKENS = int(os.getenv("OPENAI_ANALYSIS_MAX_OUTPUT_TOKENS", "8000"))
 COMPARE_TIMEOUT_SECONDS = int(os.getenv("OPENAI_COMPARE_TIMEOUT_SECONDS", "180"))
 COMPARE_MAX_OUTPUT_TOKENS = int(os.getenv("OPENAI_COMPARE_MAX_OUTPUT_TOKENS", "1800"))
 COMPARE_CONTEXT_CHAR_BUDGET = int(os.getenv("COMPARE_CONTEXT_CHAR_BUDGET", "8000"))
@@ -99,6 +125,14 @@ COMPASS_SOURCE_DOMAINS = {
         "gazette.gc.ca",
     ],
 }
+ACTIVE_PROCESSING_STATUSES = (
+    "checking_text",
+    "ocr_required",
+    "running_ocr",
+    "extracting",
+    "chunking",
+    "embedding",
+)
 SUPPORTED_TYPES = {
     "application/pdf": ".pdf",
     "application/msword": ".doc",
@@ -130,12 +164,14 @@ class AIProviderError(Exception):
         model: str | None = None,
         status_code: int = 502,
         raw_response: str | None = None,
+        diagnostics: dict | None = None,
     ):
         super().__init__(message)
         self.error_type = error_type
         self.model = model
         self.status_code = status_code
         self.raw_response = raw_response
+        self.diagnostics = diagnostics or {}
 
 
 def request_id() -> str:
@@ -259,6 +295,9 @@ class DocumentRecord(BaseModel):
     mime_type: str
     storage_provider: str
     status: str
+    processing_error: str | None = None
+    low_confidence_pages: list[int] = Field(default_factory=list)
+    extraction_metadata: dict = Field(default_factory=dict)
     created_at: datetime
 
 
@@ -288,6 +327,10 @@ class CompassConversationUpdateRequest(BaseModel):
 class AskSource(BaseModel):
     chunk_index: int
     preview: str
+    page_number: int | None = None
+    page_end: int | None = None
+    extraction_method: str | None = None
+    ocr_confidence: float | None = None
 
 
 class AskDocumentResponse(BaseModel):
@@ -334,6 +377,20 @@ async def get_db_pool():
 @app.on_event("startup")
 async def startup():
     log_openai_startup_config()
+    print(
+        "[ocr:config] "
+        f"enabled={OCR_SETTINGS.enabled} "
+        f"tesseract_detected={tesseract_available()} "
+        f"dpi={OCR_SETTINGS.dpi} retry_dpi={OCR_SETTINGS.retry_dpi} "
+        f"language={OCR_SETTINGS.language} "
+        f"min_page_characters={OCR_SETTINGS.min_page_characters} "
+        f"timeout_seconds={OCR_SETTINGS.timeout_seconds} max_pages={OCR_SETTINGS.max_pages} "
+        f"max_image_dimension={OCR_SETTINGS.max_image_dimension} "
+        f"max_image_pixels={OCR_SETTINGS.max_image_pixels} "
+        f"quality_threshold={OCR_SETTINGS.quality_threshold} "
+        f"max_attempts_per_page={OCR_SETTINGS.max_attempts_per_page} "
+        f"debug={OCR_SETTINGS.debug}"
+    )
     database_url = os.getenv("DATABASE_URL")
     app.state.db_pool = (
         await asyncpg.create_pool(database_url, statement_cache_size=0)
@@ -440,6 +497,18 @@ def user_file_key(user_id: str, document_id: str, file_name: str) -> str:
     return f"users/{user_id}/documents/{document_id}/{safe_file_name(file_name)}"
 
 
+def json_object(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
 def document_record(row) -> DocumentRecord:
     return DocumentRecord(
         id=str(row["id"]),
@@ -451,38 +520,11 @@ def document_record(row) -> DocumentRecord:
         mime_type=row["mime_type"],
         storage_provider=row["storage_provider"],
         status=row["status"],
+        processing_error=row["processing_error"],
+        low_confidence_pages=list(row["low_confidence_pages"] or []),
+        extraction_metadata=json_object(row["extraction_metadata"]),
         created_at=row["created_at"],
     )
-
-
-def extract_pdf_text(contents: bytes) -> tuple[str, int]:
-    reader = PdfReader(io.BytesIO(contents))
-    page_text = []
-    for index, page in enumerate(reader.pages, start=1):
-        text = page.extract_text() or ""
-        page_text.append(f"\n\n--- Page {index} ---\n{text.strip()}")
-
-    extracted_text = "\n".join(page_text).strip()
-    if not extracted_text:
-        raise ValueError("No extractable English text found in PDF.")
-
-    return extracted_text, len(reader.pages)
-
-
-def chunk_text(text_content: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
-    normalized = re.sub(r"\s+", " ", text_content).strip()
-    if not normalized:
-        return []
-
-    chunks = []
-    start = 0
-    while start < len(normalized):
-        end = min(start + chunk_size, len(normalized))
-        chunks.append(normalized[start:end].strip())
-        if end == len(normalized):
-            break
-        start = max(end - overlap, start + 1)
-    return [chunk for chunk in chunks if chunk]
 
 
 def get_openai_client() -> OpenAI:
@@ -495,6 +537,7 @@ def log_openai_startup_config():
         f"openai_key_detected={bool(os.getenv('OPENAI_API_KEY'))} "
         f"chat_model={OPENAI_CHAT_MODEL} "
         f"analysis_model={OPENAI_ANALYSIS_MODEL} "
+        f"analysis_max_output_tokens={ANALYSIS_MAX_OUTPUT_TOKENS} "
         f"compass_model={OPENAI_COMPASS_MODEL} "
         f"embedding_model={OPENAI_EMBED_MODEL} "
         f"embedding_dimensions={EMBEDDING_DIMENSIONS}"
@@ -638,33 +681,45 @@ async def generate_summary(prompt: str) -> str:
     return await generate_text(prompt, max_output_tokens=3200, model=OPENAI_ANALYSIS_MODEL)
 
 
-async def generate_clauses(prompt: str) -> dict:
+async def generate_clauses(chunks, request_id_value: str) -> dict:
     try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(generate_openai_json, prompt, 5200, OPENAI_ANALYSIS_MODEL),
-            timeout=AI_TIMEOUT_SECONDS,
-        )
-    except asyncio.TimeoutError as exc:
-        raise AIProviderError(
-            f"OpenAI clause intelligence request timed out after {AI_TIMEOUT_SECONDS} seconds.",
-            error_type="TimeoutError",
+        return await asyncio.to_thread(
+            run_clause_analysis,
+            client=get_openai_client(),
             model=OPENAI_ANALYSIS_MODEL,
-            status_code=504,
+            rows=chunks,
+            request_id=request_id_value,
+            max_output_tokens=ANALYSIS_MAX_OUTPUT_TOKENS,
+            timeout_seconds=AI_TIMEOUT_SECONDS,
+        )
+    except StructuredAnalysisError as exc:
+        raise AIProviderError(
+            str(exc),
+            error_type=exc.code,
+            model=OPENAI_ANALYSIS_MODEL,
+            status_code=exc.status_code,
+            diagnostics=exc.diagnostics,
         ) from exc
 
 
-async def generate_risk_analysis(prompt: str) -> dict:
+async def generate_risk_analysis(chunks, request_id_value: str) -> dict:
     try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(generate_openai_json, prompt, 5200, OPENAI_ANALYSIS_MODEL),
-            timeout=AI_TIMEOUT_SECONDS,
-        )
-    except asyncio.TimeoutError as exc:
-        raise AIProviderError(
-            f"OpenAI risk analysis request timed out after {AI_TIMEOUT_SECONDS} seconds.",
-            error_type="TimeoutError",
+        return await asyncio.to_thread(
+            run_risk_analysis,
+            client=get_openai_client(),
             model=OPENAI_ANALYSIS_MODEL,
-            status_code=504,
+            rows=chunks,
+            request_id=request_id_value,
+            max_output_tokens=ANALYSIS_MAX_OUTPUT_TOKENS,
+            timeout_seconds=AI_TIMEOUT_SECONDS,
+        )
+    except StructuredAnalysisError as exc:
+        raise AIProviderError(
+            str(exc),
+            error_type=exc.code,
+            model=OPENAI_ANALYSIS_MODEL,
+            status_code=exc.status_code,
+            diagnostics=exc.diagnostics,
         ) from exc
 
 
@@ -1422,9 +1477,20 @@ def chunk_preview(text: str, limit: int = 220) -> str:
     return f"{normalized[:limit].rstrip()}..."
 
 
+def chunk_prompt_block(row, document_label: str | None = None) -> str:
+    prefix = f"{document_label} / " if document_label else ""
+    label = f"{prefix}Chunk {row['chunk_index']}"
+    page_start = row["page_start"] if "page_start" in row.keys() else None
+    page_end = row["page_end"] if "page_end" in row.keys() else None
+    if page_start:
+        page_label = str(page_start) if not page_end or page_end == page_start else f"{page_start}-{page_end}"
+        label = f"{label} / Page {page_label}"
+    return f"[{label}]\n{row['chunk_text']}"
+
+
 def build_document_answer_prompt(question: str, chunks) -> str:
     chunk_blocks = "\n\n".join(
-        f"[Chunk {row['chunk_index']}]\n{row['chunk_text']}"
+        chunk_prompt_block(row)
         for row in chunks
     )
     return f"""
@@ -1448,7 +1514,7 @@ Question:
 
 def build_document_summary_prompt(chunks) -> str:
     chunk_blocks = "\n\n".join(
-        f"[Chunk {row['chunk_index']}]\n{row['chunk_text']}"
+        chunk_prompt_block(row)
         for row in chunks
     )
     return f"""
@@ -1491,7 +1557,7 @@ Document chunks in order:
 
 def build_document_intelligence_prompt(chunks, page_count: int | None) -> str:
     chunk_blocks = "\n\n".join(
-        f"[Chunk {row['chunk_index']}]\n{row['chunk_text']}"
+        chunk_prompt_block(row)
         for row in chunks
     )
     known_pages = page_count if page_count else "Not specified"
@@ -1614,7 +1680,7 @@ Document chunks in order:
 
 def build_document_clauses_prompt(chunks) -> str:
     chunk_blocks = "\n\n".join(
-        f"[Chunk {row['chunk_index']}]\n{row['chunk_text']}"
+        chunk_prompt_block(row)
         for row in chunks
     )
     return f"""
@@ -1690,7 +1756,7 @@ Document chunks in order:
 
 def build_document_risk_analysis_prompt(chunks) -> str:
     chunk_blocks = "\n\n".join(
-        f"[Chunk {row['chunk_index']}]\n{row['chunk_text']}"
+        chunk_prompt_block(row)
         for row in chunks
     )
     return f"""
@@ -1844,11 +1910,11 @@ def compare_chunk_score(text: str) -> int:
 
 def build_document_compare_prompt(document_a, chunks_a, document_b, chunks_b) -> str:
     chunk_blocks_a = "\n\n".join(
-        f"[Document A / Chunk {row['chunk_index']}]\n{row['chunk_text']}"
+        chunk_prompt_block(row, "Document A")
         for row in chunks_a
     )
     chunk_blocks_b = "\n\n".join(
-        f"[Document B / Chunk {row['chunk_index']}]\n{row['chunk_text']}"
+        chunk_prompt_block(row, "Document B")
         for row in chunks_b
     )
     return f"""
@@ -1954,17 +2020,26 @@ async def save_document_metadata(
         """
         insert into documents (
           id, user_id, title, file_name, file_key, file_size, mime_type,
-          storage_provider, status, created_at
+          storage_provider, status, processing_error, low_confidence_pages,
+          extraction_metadata, created_at, updated_at
         )
-        values ($1, $2, $3, $4, $5, $6, $7, 'cloudflare_r2', 'uploaded', now())
+        values (
+          $1, $2, $3, $4, $5, $6, $7, 'cloudflare_r2', 'uploaded', null,
+          '{}'::integer[], '{}'::jsonb, now(), now()
+        )
         on conflict (id) do update set
           file_name = excluded.file_name,
           file_key = excluded.file_key,
           file_size = excluded.file_size,
           mime_type = excluded.mime_type,
-          status = 'uploaded'
+          status = 'uploaded',
+          processing_error = null,
+          low_confidence_pages = '{}'::integer[],
+          extraction_metadata = '{}'::jsonb,
+          updated_at = now()
         returning id, user_id, title, file_name, file_key, file_size, mime_type,
-          storage_provider, status, created_at
+          storage_provider, status, processing_error, low_confidence_pages,
+          extraction_metadata, created_at
         """,
         uuid.UUID(document_id),
         uuid.UUID(user_id),
@@ -1982,23 +2057,27 @@ async def save_document_text(
     user_id: str,
     text_content: str,
     page_count: int,
+    pages: list[dict],
 ):
     await pool.execute(
         """
         insert into document_text (
-          document_id, user_id, text_content, page_count, language, created_at, updated_at
+          document_id, user_id, text_content, page_count, language, page_metadata,
+          created_at, updated_at
         )
-        values ($1, $2, $3, $4, 'en', now(), now())
+        values ($1, $2, $3, $4, 'en', $5::jsonb, now(), now())
         on conflict (document_id) do update set
           text_content = excluded.text_content,
           page_count = excluded.page_count,
           language = 'en',
+          page_metadata = excluded.page_metadata,
           updated_at = now()
         """,
         uuid.UUID(document_id),
         uuid.UUID(user_id),
         text_content,
         page_count,
+        json.dumps(pages),
     )
 
 
@@ -2006,7 +2085,7 @@ async def save_document_chunks(
     pool: asyncpg.Pool,
     document_id: str,
     user_id: str,
-    chunks: list[str],
+    chunks: list[DocumentChunk],
     embeddings: list[list[float]],
 ):
     if len(chunks) != len(embeddings):
@@ -2022,51 +2101,277 @@ async def save_document_chunks(
                     """
                     insert into document_chunks (
                       document_id, user_id, chunk_index, chunk_text, embedding,
-                      embedding_provider, embedding_model, embedding_dimensions, created_at
+                      embedding_provider, embedding_model, embedding_dimensions,
+                      page_start, page_end, extraction_method, ocr_confidence, created_at
                     )
-                    values ($1, $2, $3, $4, $5::vector, $6, $7, $8, now())
+                    values (
+                      $1, $2, $3, $4, $5::vector, $6, $7, $8,
+                      $9, $10, $11, $12, now()
+                    )
                     """,
                     [
                         (
                             document_uuid,
                             user_uuid,
-                            index,
-                            chunk,
+                            chunk.chunk_index,
+                            chunk.text,
                             vector_literal(embeddings[index]),
                             "openai",
                             OPENAI_EMBED_MODEL,
                             EMBEDDING_DIMENSIONS,
+                            chunk.page_start,
+                            chunk.page_end,
+                            chunk.extraction_method,
+                            chunk.ocr_confidence,
                         )
                         for index, chunk in enumerate(chunks)
                     ],
                 )
+    return len(chunks)
 
 
-async def update_document_status(pool: asyncpg.Pool, document_id: str, user_id: str, status_value: str):
+async def update_document_status(
+    pool: asyncpg.Pool,
+    document_id: str,
+    user_id: str,
+    status_value: str,
+    *,
+    processing_error: str | None = None,
+    low_confidence_pages: list[int] | None = None,
+    metadata: dict | None = None,
+):
     return await pool.fetchrow(
         """
         update documents
-        set status = $3
+        set
+          status = $3,
+          processing_error = $4,
+          low_confidence_pages = $5,
+          extraction_metadata = $6::jsonb,
+          updated_at = now()
         where id = $1 and user_id = $2
         returning id, user_id, title, file_name, file_key, file_size, mime_type,
-          storage_provider, status, created_at
+          storage_provider, status, processing_error, low_confidence_pages,
+          extraction_metadata, created_at
         """,
         uuid.UUID(document_id),
         uuid.UUID(user_id),
         status_value,
+        processing_error,
+        low_confidence_pages or [],
+        json.dumps(metadata or {}),
     )
 
 
 async def get_owned_document(pool: asyncpg.Pool, document_id: str, user_id: str):
     return await pool.fetchrow(
         """
-        select id, user_id, title, file_name, status
+        select id, user_id, title, file_name, file_key, file_size, mime_type,
+          storage_provider, status, processing_error, low_confidence_pages,
+          extraction_metadata, created_at, updated_at
         from documents
         where id = $1 and user_id = $2
         """,
         uuid.UUID(document_id),
         uuid.UUID(user_id),
     )
+
+
+async def claim_document_processing(pool: asyncpg.Pool, document_id: str, user_id: str):
+    stale_after_seconds = max(OCR_SETTINGS.timeout_seconds * 2, 300)
+    return await pool.fetchrow(
+        """
+        update documents
+        set
+          status = 'checking_text',
+          processing_error = null,
+          low_confidence_pages = '{}'::integer[],
+          extraction_metadata = '{}'::jsonb,
+          updated_at = now()
+        where id = $1
+          and user_id = $2
+          and (
+            not (status = any($3::text[]))
+            or updated_at < now() - make_interval(secs => $4::double precision)
+          )
+        returning id, user_id, title, file_name, file_key, file_size, mime_type,
+          storage_provider, status, processing_error, low_confidence_pages,
+          extraction_metadata, created_at
+        """,
+        uuid.UUID(document_id),
+        uuid.UUID(user_id),
+        list(ACTIVE_PROCESSING_STATUSES),
+        float(stale_after_seconds),
+    )
+
+
+async def reset_document_processing_data(pool: asyncpg.Pool, document_id: str, user_id: str):
+    document_uuid = uuid.UUID(document_id)
+    user_uuid = uuid.UUID(user_id)
+    async with pool.acquire() as connection:
+        async with connection.transaction():
+            await connection.execute(
+                "delete from document_chunks where document_id = $1 and user_id = $2",
+                document_uuid,
+                user_uuid,
+            )
+            await connection.execute(
+                "delete from document_text where document_id = $1 and user_id = $2",
+                document_uuid,
+                user_uuid,
+            )
+            await connection.execute(
+                "delete from ai_outputs where document_id = $1 and user_id = $2",
+                document_uuid,
+                user_uuid,
+            )
+
+
+def read_r2_document(file_key: str) -> bytes:
+    response = get_r2_client().get_object(Bucket=get_env("R2_BUCKET_NAME"), Key=file_key)
+    body = response["Body"]
+    try:
+        contents = body.read(MAX_FILE_SIZE + 1)
+    finally:
+        body.close()
+    if len(contents) > MAX_FILE_SIZE:
+        raise ValueError("Stored document exceeds the 25MB processing limit.")
+    return contents
+
+
+async def process_pdf_document(
+    *,
+    pool: asyncpg.Pool,
+    document_id: str,
+    user_id: str,
+    contents: bytes,
+    already_claimed: bool = False,
+    already_reset: bool = False,
+):
+    if not already_claimed:
+        claimed = await claim_document_processing(pool, document_id, user_id)
+        if not claimed:
+            raise HTTPException(status_code=409, detail="This document is already being processed.")
+
+    if not already_reset:
+        await reset_document_processing_data(pool, document_id, user_id)
+    started_at = time.perf_counter()
+    try:
+        inspection = await asyncio.to_thread(inspect_native_pdf, contents, OCR_SETTINGS)
+        print(
+            f"[document:extract:inspection] document_id={document_id} "
+            f"pages={inspection.page_count} unreadable_pages={list(inspection.unreadable_pages)}"
+        )
+
+        if inspection.unreadable_pages:
+            await update_document_status(pool, document_id, user_id, "ocr_required")
+            await update_document_status(pool, document_id, user_id, "running_ocr")
+
+        extraction = await asyncio.wait_for(
+            asyncio.to_thread(
+                extract_hybrid_pdf,
+                contents,
+                inspection,
+                OCR_SETTINGS,
+                debug_label=document_id,
+            ),
+            timeout=OCR_SETTINGS.timeout_seconds + 15,
+        )
+        validate_pdf_extraction(
+            extraction,
+            minimum_document_characters=OCR_SETTINGS.min_page_characters,
+        )
+
+        await update_document_status(pool, document_id, user_id, "extracting")
+        await save_document_text(
+            pool=pool,
+            document_id=document_id,
+            user_id=user_id,
+            text_content=extraction.text_content,
+            page_count=extraction.page_count,
+            pages=page_metadata(extraction),
+        )
+
+        await update_document_status(pool, document_id, user_id, "chunking")
+        chunks = build_page_aware_chunks(
+            extraction.pages,
+            chunk_size=CHUNK_SIZE,
+            overlap=CHUNK_OVERLAP,
+        )
+        validate_chunks(chunks)
+        validate_chunk_coverage(extraction.pages, chunks)
+
+        await update_document_status(pool, document_id, user_id, "embedding")
+        embeddings = await generate_embeddings([chunk.text for chunk in chunks])
+        validate_embeddings(embeddings, len(chunks), EMBEDDING_DIMENSIONS)
+        stored_count = await save_document_chunks(
+            pool,
+            document_id,
+            user_id,
+            chunks,
+            embeddings,
+        )
+        if stored_count != len(chunks):
+            raise RuntimeError("Not all validated document chunks were stored.")
+
+        metadata = extraction_metadata(extraction, stored_count)
+        has_warning = bool(extraction.review_pages)
+        final_status = "processed_with_warning" if has_warning else "processed"
+        row = await update_document_status(
+            pool,
+            document_id,
+            user_id,
+            final_status,
+            low_confidence_pages=extraction.review_pages,
+            metadata=metadata,
+        )
+        duration_ms = round((time.perf_counter() - started_at) * 1000)
+        print(
+            f"[document:process:complete] document_id={document_id} status={final_status} "
+            f"pages={extraction.page_count} ocr_pages={extraction.ocr_pages} "
+            f"unreadable_pages={extraction.failed_pages} chunks={stored_count} duration_ms={duration_ms}"
+        )
+        return row
+    except (DocumentValidationError, OCRUnavailableError, OCRTimeoutError, asyncio.TimeoutError) as exc:
+        if isinstance(exc, OCRUnavailableError):
+            message = "Scanned pages could not be read because OCR is not available on the server."
+        elif isinstance(exc, (OCRTimeoutError, asyncio.TimeoutError)):
+            message = "Text recognition took too long. Retry with a shorter or clearer document."
+        else:
+            message = str(exc)
+        print(
+            f"[document:process:needs_review] document_id={document_id} "
+            f"type={exc.__class__.__name__} message={message}"
+        )
+        return await update_document_status(
+            pool,
+            document_id,
+            user_id,
+            "needs_review",
+            processing_error=message,
+        )
+    except DocumentExtractionError as exc:
+        message = str(exc)
+        print(
+            f"[document:process:failed] document_id={document_id} "
+            f"type={exc.__class__.__name__} message={message}"
+        )
+        return await update_document_status(
+            pool,
+            document_id,
+            user_id,
+            "failed",
+            processing_error=message,
+        )
+    except Exception as exc:
+        log_exception("document_processing", exc, request_id(), document_id=document_id, user_id=user_id)
+        return await update_document_status(
+            pool,
+            document_id,
+            user_id,
+            "failed",
+            processing_error="Document processing failed. Retry text recognition or replace the file.",
+        )
 
 
 async def search_document_chunks(
@@ -2081,6 +2386,10 @@ async def search_document_chunks(
           id,
           chunk_index,
           chunk_text,
+          page_start,
+          page_end,
+          extraction_method,
+          ocr_confidence,
           embedding::vector(1536) <=> $2::vector(1536) as distance
         from document_chunks
         where document_id = $1
@@ -2104,6 +2413,10 @@ async def get_fallback_document_chunks(pool: asyncpg.Pool, document_id: str, lim
           id,
           chunk_index,
           chunk_text,
+          page_start,
+          page_end,
+          extraction_method,
+          ocr_confidence,
           null::float8 as distance
         from document_chunks
         where document_id = $1
@@ -2137,7 +2450,7 @@ async def count_retrievable_document_chunks(pool: asyncpg.Pool, document_id: str
 async def get_document_chunks_in_order(pool: asyncpg.Pool, document_id: str, user_id: str):
     return await pool.fetch(
         """
-        select chunk_index, chunk_text
+        select chunk_index, chunk_text, page_start, page_end, extraction_method, ocr_confidence
         from document_chunks
         where document_id = $1
           and user_id = $2
@@ -2590,7 +2903,9 @@ async def upload_document(
         file_key = user_file_key(user_id, document_id, file_name)
 
         print("r2 upload starting")
-        get_r2_client().put_object(
+        r2_client = get_r2_client()
+        await asyncio.to_thread(
+            r2_client.put_object,
             Bucket=get_env("R2_BUCKET_NAME"),
             Key=file_key,
             Body=contents,
@@ -2610,27 +2925,12 @@ async def upload_document(
         )
         print("database insert done")
         if mime_type == "application/pdf":
-            try:
-                print("pdf extraction starting")
-                extracted_text, page_count = extract_pdf_text(contents)
-                await save_document_text(
-                    pool=pool,
-                    document_id=document_id,
-                    user_id=user_id,
-                    text_content=extracted_text,
-                    page_count=page_count,
-                )
-                chunks = chunk_text(extracted_text)
-                print("chunk embedding starting")
-                embeddings = await generate_embeddings(chunks)
-                await save_document_chunks(pool, document_id, user_id, chunks, embeddings)
-                print("chunk embedding done")
-                row = await update_document_status(pool, document_id, user_id, "processed")
-                print("pdf extraction done")
-            except Exception as exc:
-                traceback.print_exc()
-                row = await update_document_status(pool, document_id, user_id, "extraction_failed")
-                print(f"pdf extraction failed: {exc}")
+            row = await process_pdf_document(
+                pool=pool,
+                document_id=document_id,
+                user_id=user_id,
+                contents=contents,
+            )
 
         return document_record(row)
     except Exception as exc:
@@ -2653,7 +2953,8 @@ async def list_documents(
     rows = await pool.fetch(
         """
         select id, user_id, title, file_name, file_key, file_size, mime_type,
-          storage_provider, status, created_at
+          storage_provider, status, processing_error, low_confidence_pages,
+          extraction_metadata, created_at
         from documents
         where user_id = $1
         order by created_at desc
@@ -2688,6 +2989,54 @@ async def download_url(
         raise HTTPException(status_code=500, detail="Could not create download URL.") from exc
 
     return DownloadUrlResponse(downloadUrl=signed_url)
+
+
+@app.post("/api/documents/{document_id}/reprocess", response_model=DocumentRecord)
+async def reprocess_document(
+    document_id: str,
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    document = await get_owned_document(pool, document_id, user_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if document["mime_type"] != "application/pdf":
+        raise HTTPException(status_code=400, detail="Text recognition retry is currently available for PDF files.")
+
+    claimed = await claim_document_processing(pool, document_id, user_id)
+    if not claimed:
+        raise HTTPException(status_code=409, detail="This document is already being processed.")
+
+    await reset_document_processing_data(pool, document_id, user_id)
+
+    try:
+        contents = await asyncio.to_thread(read_r2_document, document["file_key"])
+        validate_uploaded_file(
+            document["file_name"],
+            document["mime_type"],
+            len(contents),
+            contents,
+        )
+    except (ClientError, ValueError) as exc:
+        log_exception("document_reprocess_download", exc, request_id(), document_id=document_id)
+        await update_document_status(
+            pool,
+            document_id,
+            user_id,
+            "failed",
+            processing_error="The original file could not be loaded for reprocessing.",
+        )
+        raise HTTPException(status_code=502, detail="The original file could not be loaded for reprocessing.") from exc
+
+    row = await process_pdf_document(
+        pool=pool,
+        document_id=document_id,
+        user_id=user_id,
+        contents=contents,
+        already_claimed=True,
+        already_reset=True,
+    )
+    return document_record(row)
 
 
 @app.post("/api/documents/{document_id}/ask", response_model=AskDocumentResponse)
@@ -2756,7 +3105,14 @@ async def ask_document(
     return AskDocumentResponse(
         answer=answer,
         sources=[
-            AskSource(chunk_index=row["chunk_index"], preview=chunk_preview(row["chunk_text"]))
+            AskSource(
+                chunk_index=row["chunk_index"],
+                preview=chunk_preview(row["chunk_text"]),
+                page_number=row["page_start"],
+                page_end=row["page_end"],
+                extraction_method=row["extraction_method"],
+                ocr_confidence=row["ocr_confidence"],
+            )
             for row in chunks
         ],
     )
@@ -2988,8 +3344,7 @@ async def document_clauses(
             print(f"[ai:clauses:cache_hit] request_id={req_id} input_hash={input_hash}")
             return success_envelope(with_cached_flag(cached_output, True), req_id)
 
-        prompt = build_document_clauses_prompt(chunks)
-        clauses = await generate_clauses(prompt)
+        clauses = await generate_clauses(chunks, req_id)
         normalized = normalize_clauses_payload(clauses)
         await save_ai_output(
             pool,
@@ -3013,17 +3368,22 @@ async def document_clauses(
             error_type="HTTPException",
         )
     except AIProviderError as exc:
-        log_exception("ai_clauses", exc, req_id, provider="openai", model=exc.model, raw_response=sanitize_log_text(exc.raw_response))
+        log_exception(
+            "ai_clauses",
+            exc,
+            req_id,
+            provider="openai",
+            model=exc.model,
+            error_type=exc.error_type,
+            diagnostics=exc.diagnostics,
+        )
         return error_envelope_response(
-            message=str(exc),
+            message="Juris could not complete this analysis. Your document is safe. Try again.",
             request_id_value=req_id,
             status_code_value=exc.status_code,
-            error_type=exc.error_type,
+            error_type="ANALYSIS_TEMPORARILY_UNAVAILABLE",
             details={
-                "provider": "openai",
-                "model": exc.model,
-                "timeoutSeconds": AI_TIMEOUT_SECONDS,
-                "rawResponse": sanitize_log_text(exc.raw_response),
+                "code": "ANALYSIS_TEMPORARILY_UNAVAILABLE",
             },
         )
     except Exception as exc:
@@ -3081,8 +3441,7 @@ async def document_risk_analysis(
             print(f"[ai:risk:cache_hit] request_id={req_id} input_hash={input_hash}")
             return success_envelope(with_cached_flag(cached_output, True), req_id)
 
-        prompt = build_document_risk_analysis_prompt(chunks)
-        risk_analysis = await generate_risk_analysis(prompt)
+        risk_analysis = await generate_risk_analysis(chunks, req_id)
         normalized = normalize_risk_analysis_payload(risk_analysis)
         await save_ai_output(
             pool,
@@ -3107,17 +3466,22 @@ async def document_risk_analysis(
             error_type="HTTPException",
         )
     except AIProviderError as exc:
-        log_exception("ai_risk_analysis", exc, req_id, provider="openai", model=exc.model, raw_response=sanitize_log_text(exc.raw_response))
+        log_exception(
+            "ai_risk_analysis",
+            exc,
+            req_id,
+            provider="openai",
+            model=exc.model,
+            error_type=exc.error_type,
+            diagnostics=exc.diagnostics,
+        )
         return error_envelope_response(
-            message=str(exc),
+            message="Juris could not complete this analysis. Your document is safe. Try again.",
             request_id_value=req_id,
             status_code_value=exc.status_code,
-            error_type=exc.error_type,
+            error_type="ANALYSIS_TEMPORARILY_UNAVAILABLE",
             details={
-                "provider": "openai",
-                "model": exc.model,
-                "timeoutSeconds": AI_TIMEOUT_SECONDS,
-                "rawResponse": sanitize_log_text(exc.raw_response),
+                "code": "ANALYSIS_TEMPORARILY_UNAVAILABLE",
             },
         )
     except Exception as exc:

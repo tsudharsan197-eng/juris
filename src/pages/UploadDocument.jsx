@@ -106,15 +106,23 @@ export default function UploadDocument() {
     try {
       validate(file);
       setStatus("uploading");
-      setProgress(8);
+      setProgress(0);
       setDebugError(null);
-      setMessage("Uploading through the secure Juris backend...");
-      await uploadDocumentFile(file, setProgress);
+      setMessage("Uploading and checking document text. Scanned pages are read automatically when needed.");
+      const document = await uploadDocumentFile(file, setProgress);
 
-      setStatus("uploaded");
       setProgress(100);
-      setMessage("Document uploaded. Opening workspace...");
-      window.setTimeout(() => navigate("/documents"), 650);
+      if (document.status === "processed_with_warning") {
+        setStatus("warning");
+        setMessage("Document is ready. Some scanned text may need review.");
+      } else if (["needs_review", "failed", "extraction_failed"].includes(document.status)) {
+        setStatus("needs-review");
+        setMessage(document.processing_error || "We could not read this scan clearly.");
+      } else {
+        setStatus("uploaded");
+        setMessage("Document is ready. Opening your documents...");
+      }
+      window.setTimeout(() => navigate("/documents"), 1100);
     } catch (error) {
       setStatus("error");
       setMessage(error.detail || error.message);
@@ -218,8 +226,11 @@ export default function UploadDocument() {
               </article>
             )}
 
-            <div className="upload-progress" aria-label={`Upload progress ${progress}%`}>
-              <span style={{ width: `${progress}%` }} />
+            <div
+              className={`upload-progress${status === "uploading" ? " is-processing" : ""}`}
+              aria-label={status === "uploading" ? "Document processing in progress" : `Upload progress ${progress}%`}
+            >
+              <span style={status === "uploading" ? undefined : { width: `${progress}%` }} />
             </div>
 
             <div className={`upload-status ${status}`}>

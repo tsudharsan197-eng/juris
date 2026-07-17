@@ -8,7 +8,18 @@ import {
   deleteDocument,
   getDocumentDownloadUrl,
   listDocuments,
+  reprocessDocument,
 } from "../lib/documentsApi.js";
+
+const READY_STATUSES = new Set(["processed", "processed_with_warning"]);
+const ACTIVE_STATUSES = new Set([
+  "checking_text",
+  "ocr_required",
+  "running_ocr",
+  "extracting",
+  "chunking",
+  "embedding",
+]);
 
 export default function Documents() {
   const { isSignedIn, loading: authLoading } = useAuth();
@@ -18,6 +29,7 @@ export default function Documents() {
   const [actionError, setActionError] = useState("");
   const [deletingIds, setDeletingIds] = useState(() => new Set());
   const [downloadingId, setDownloadingId] = useState(null);
+  const [reprocessingIds, setReprocessingIds] = useState(() => new Set());
   const documentsRequestedRef = useRef(false);
 
   useEffect(() => {
@@ -87,10 +99,43 @@ export default function Documents() {
     }
   }
 
+  async function handleReprocess(document) {
+    try {
+      setActionError("");
+      setReprocessingIds((current) => new Set(current).add(document.id));
+      setDocuments((current) => current.map((item) => (
+        item.id === document.id ? { ...item, status: "checking_text", processing_error: null } : item
+      )));
+      const updatedDocument = await reprocessDocument(document.id);
+      setDocuments((current) => current.map((item) => (
+        item.id === document.id ? updatedDocument : item
+      )));
+    } catch (error) {
+      setActionError(error.message);
+      setDocuments((current) => current.map((item) => (
+        item.id === document.id ? document : item
+      )));
+    } finally {
+      setReprocessingIds((current) => {
+        const next = new Set(current);
+        next.delete(document.id);
+        return next;
+      });
+    }
+  }
+
   function documentStatusLabel(statusValue) {
     if (statusValue === "processed") return "Document Processed";
+    if (statusValue === "processed_with_warning") return "Ready - review suggested";
     if (statusValue === "uploaded") return "Uploaded";
-    if (statusValue === "extraction_failed") return "Processing failed";
+    if (statusValue === "checking_text") return "Checking document text";
+    if (statusValue === "ocr_required") return "Scanned pages detected";
+    if (statusValue === "running_ocr") return "Reading scanned pages";
+    if (statusValue === "extracting") return "Building searchable text";
+    if (statusValue === "chunking") return "Building searchable text";
+    if (statusValue === "embedding") return "Creating document intelligence";
+    if (["extraction_failed", "failed"].includes(statusValue)) return "Processing failed";
+    if (statusValue === "needs_review") return "Needs review";
     return "Processing...";
   }
 
@@ -125,7 +170,10 @@ export default function Documents() {
 
           <div className="documents-grid">
             {documents.map((document) => {
-              const isProcessed = document.status === "processed";
+              const isProcessed = READY_STATUSES.has(document.status);
+              const isProcessing = ACTIVE_STATUSES.has(document.status) || reprocessingIds.has(document.id);
+              const needsReview = ["processed_with_warning", "needs_review", "failed", "extraction_failed"].includes(document.status);
+              const reviewPages = document.low_confidence_pages || [];
 
               return (
                 <article
@@ -146,12 +194,23 @@ export default function Documents() {
                   )}
                   <div className="document-identity">
                     {isProcessed ? (
-                      <span className="document-ready-label"><i aria-hidden="true" /> Processed / Ready</span>
+                      <span className={`document-ready-label${document.status === "processed_with_warning" ? " has-warning" : ""}`}>
+                        <i aria-hidden="true" /> {document.status === "processed_with_warning" ? "Ready / Review suggested" : "Processed / Ready"}
+                      </span>
                     ) : (
-                      <span>{document.status}</span>
+                      <span>{documentStatusLabel(document.status)}</span>
                     )}
                     <h2>{document.title}</h2>
                     <p>{document.file_name}</p>
+                    {document.processing_error && (
+                      <p className="document-processing-note">{document.processing_error}</p>
+                    )}
+                    {document.status === "processed_with_warning" && (
+                      <p className="document-processing-note">
+                        Some scanned text may be incomplete. Review source page{reviewPages.length === 1 ? "" : "s"}
+                        {reviewPages.length ? ` ${reviewPages.join(", ")}.` : "."}
+                      </p>
+                    )}
                   </div>
                   <div className="document-actions">
                     <div className="document-metadata">
@@ -177,6 +236,29 @@ export default function Documents() {
                           {documentStatusLabel(document.status)}
                         </span>
                       )}
+                      {document.mime_type === "application/pdf" && (
+                        <button
+                          className="document-action-button document-reprocess"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleReprocess(document);
+                          }}
+                          disabled={isProcessing}
+                          aria-label={`Retry text recognition for ${document.title}`}
+                        >
+                          {isProcessing ? "Processing..." : needsReview ? "Retry text recognition" : "Reprocess"}
+                        </button>
+                      )}
+                      {["needs_review", "failed", "extraction_failed"].includes(document.status) && (
+                        <Link
+                          className="document-action-button document-replace-link"
+                          to="/upload-document"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          Replace file
+                        </Link>
+                      )}
                       <button
                         className="document-action-button"
                         type="button"
@@ -187,7 +269,11 @@ export default function Documents() {
                         disabled={downloadingId === document.id}
                         aria-label={`Download ${document.title}`}
                       >
-                        {downloadingId === document.id ? "Opening..." : "Download"}
+                        {downloadingId === document.id
+                          ? "Opening..."
+                          : document.status === "processed_with_warning"
+                            ? "Review source PDF"
+                            : "Download"}
                       </button>
                       <button
                         className="document-action-button document-delete"

@@ -39,6 +39,7 @@ const WORKSPACE_TABS = [
 ];
 
 const AI_LOADING_DELAY_MS = 180;
+const READY_DOCUMENT_STATUSES = new Set(["processed", "processed_with_warning"]);
 
 function startDeferredLoading(setStatus) {
   setStatus("pending");
@@ -433,7 +434,7 @@ export default function DocumentWorkspace() {
     if (tabId === "ask") return "Ready";
     if (tabId === "compass") return "Ready";
     if (tabId === "compare" && states.compare === "idle") {
-      return documents.some((item) => item.id !== documentId && item.status === "processed") ? "Ready" : "Needs file";
+      return documents.some((item) => item.id !== documentId && READY_DOCUMENT_STATUSES.has(item.status)) ? "Ready" : "Needs file";
     }
     const value = states[tabId];
     if (isAiLoading(value)) return "Processing";
@@ -451,7 +452,7 @@ export default function DocumentWorkspace() {
             <div className="workspace-document-primary">
               <div className="workspace-document-title-row">
                 <h1>{document ? readableFileName : "Document workspace"}</h1>
-                {document?.status === "processed" && (
+                {READY_DOCUMENT_STATUSES.has(document?.status) && (
                   <span className="workspace-simple-status"><i aria-hidden="true" /> Processed</span>
                 )}
               </div>
@@ -667,8 +668,20 @@ function AskChat({ askError, askStatus, chat, document, handleAskSubmit, onPromp
                 {message.sources?.length > 0 ? (
                   message.sources.map((source) => (
                     <details className="chat-source" key={`${message.id}-${source.chunk_index}`}>
-                      <summary>Source {Number(source.chunk_index) + 1}</summary>
+                      <summary>
+                        {source.page_number
+                          ? `Page ${source.page_end && source.page_end !== source.page_number ? `${source.page_number}-${source.page_end}` : source.page_number}`
+                          : `Source ${Number(source.chunk_index) + 1}`}
+                      </summary>
                       <p>{source.preview}</p>
+                      {source.extraction_method === "ocr" && (
+                        <small>
+                          Text recognized from scan
+                          {typeof source.ocr_confidence === "number"
+                            ? ` · ${Math.round(source.ocr_confidence * 100)}% confidence`
+                            : ""}
+                        </small>
+                      )}
                     </details>
                   ))
                 ) : (
@@ -852,7 +865,7 @@ function CompareDocumentsPanel({
   onCompare,
   setCompareTargetId,
 }) {
-  const candidates = documents.filter((item) => item.id !== currentDocument.id && item.status === "processed");
+  const candidates = documents.filter((item) => item.id !== currentDocument.id && READY_DOCUMENT_STATUSES.has(item.status));
   const selectedDocument = candidates.find((item) => item.id === compareTargetId);
   const isLoading = isAiLoading(compareStatus);
   const isSubmitting = isAiLoading(compareStatus);
