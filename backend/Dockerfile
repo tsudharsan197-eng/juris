@@ -14,11 +14,14 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY requirements.txt ./requirements.txt
+
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
 RUN useradd --create-home --uid 10001 juris
+
 COPY --chown=juris:juris app ./app
+
 USER juris
 
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]
