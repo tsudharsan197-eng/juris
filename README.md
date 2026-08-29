@@ -2,6 +2,17 @@
 
 Premium React landing page and auth-ready frontend for an AI legal intelligence platform.
 
+## Project memory and recovery
+
+AI and maintainer context is versioned with the project:
+
+- [`AGENTS.md`](AGENTS.md) defines the collaboration and memory-maintenance protocol.
+- [`MEMORY.md`](MEMORY.md) records the current durable project state.
+- [`docs/DECISIONS.md`](docs/DECISIONS.md) records architecture decisions.
+- [`docs/PROJECT_RECOVERY.md`](docs/PROJECT_RECOVERY.md) explains Git, data, storage, secret, and deployment recovery.
+
+Run `./scripts/verify-project-memory.sh` to validate the memory baseline. Use `./scripts/create-recovery-bundle.sh /path/to/off-device-backup` for a portable copy of committed Git history.
+
 ## Run locally
 
 ```bash
