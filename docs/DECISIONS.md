@@ -82,3 +82,38 @@ Consequences
 **Decision:** Backend document operations require a valid Supabase Bearer token and verify document ownership. R2 remains private, and frontend code receives only public Supabase configuration.
 
 **Consequences:** Ownership checks cannot be traded for convenience. Secrets remain backend-only, and deletion/reprocessing must preserve user isolation.
+
+## ADR-007: External-object deletion is ledger-backed and reconciled
+
+- Date: 2026-08-29
+- Status: Accepted
+
+**Context:** R2 object deletion and Postgres row deletion cannot share one atomic transaction. Upload or delete failures between those systems can otherwise create untracked private objects or metadata that falsely implies deletion succeeded.
+
+**Decision:** Juris writes document metadata before attempting an upload and compensates any uncommitted storage attempt. User deletion records a durable `r2_deletion_jobs` row before touching R2, confirms the object deletion, and only then removes the document row in the same database transaction that completes the job. A background worker retries recorded failures and runs report-only reconciliation. Unknown historical objects are never removed automatically.
+
+**Consequences:** Migration `010_r2_lifecycle_security.sql` must be applied before this backend release. Reconciliation output contains counts and truncated SHA-256 key fingerprints rather than confidential filenames. The ledger improves consistency but is not a backup; R2 and Supabase still require independent recovery copies and tested restore procedures.
+
+**2026-09-04 refinement:** Upload rollback also records intent before R2 deletion. Duplicate requests preserve active leases and backoff; attempt numbers fence stale finalization. Retry polling is separate from daily reconciliation. Pending deletes return 503 until storage and metadata cleanup both complete, preserving truthful behavior in the existing client. The in-process worker requires a running service; it is not an external scheduled job.
+
+## ADR-008: Shared processing budgets and private file responses
+
+- Date: 2026-09-04
+- Status: Accepted
+
+**Context:** Per-process throttles reset on restart and multiply with replicas. Multipart parsing happens before FastAPI upload dependencies, so application quotas alone cannot bound upload spool storage. Private signed URLs also require explicit caching and disposition controls.
+
+**Decision:** Upload and reprocess share an atomic Postgres quota keyed by verified user identity. Quota failure is fail-closed, with Retry-After preserved through the existing error envelope. A multipart body ceiling bounds declared-length and chunked requests before processing. Private API responses, new objects, and signed GET overrides use no-store. Filenames are sanitized, PDF previews remain inline, and Word files download as attachments. Remove the temporary public OpenAI diagnostic.
+
+**Consequences:** Migration 011 must precede the P1 backend deployment. Existing R2 objects need no metadata rewrite for newly generated signed URLs. Account quotas and per-request byte limits are not a global concurrency, anti-bot, or DDoS defense; provider-level controls and monitored capacity remain necessary. No-store cannot revoke previously downloaded copies or previously issued URLs.
+
+## ADR-009: Security operations distinguish failure from missing evidence
+
+- Date: 2026-09-04
+- Status: Accepted
+
+**Context:** Local security patches and healthy API responses do not prove production migrations, storage consistency, provider privacy, or recovery readiness. A monitor that treats inaccessible checks as passing creates false confidence.
+
+**Decision:** Provide a read-only CLI with explicit pass/fail/warn/unknown findings and distinct nonzero exits. Inspect effective privileges, deletion backlog, bounded R2 inventory, and optional unauthenticated HTTP behavior without downloading private content or invoking legacy OpenAI diagnostics. Keep provider-only controls unknown until independently verified. Regression CI runs without production credentials, using pinned actions and disposable SQL fixtures.
+
+**Consequences:** P2 adds no migration or new public endpoint. The Docker image packages operational scripts and excludes private build-context files. Production deployment, external scheduling/alert delivery, backup/restore verification, token review, and capacity controls remain separate release gates, not completed facts.

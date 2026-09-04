@@ -34,6 +34,11 @@ from .services.document_processing_service import (
     validate_chunks,
     validate_embeddings,
 )
+from .services.document_security_service import (
+    PRIVATE_CACHE_CONTROL,
+    PRIVATE_RESPONSE_HEADERS,
+    consume_processing_budget,
+)
 from .services.ocr_service import OCRTimeoutError, OCRUnavailableError, tesseract_available
 from .services.pdf_extraction_service import (
     DocumentExtractionError,
@@ -43,19 +48,51 @@ from .services.pdf_extraction_service import (
     inspect_native_pdf,
     validate_pdf_extraction,
 )
+from .services.r2_lifecycle_service import (
+    enqueue_deletion_job,
+    object_records,
+    process_deletion_job_by_id,
+    process_due_deletion_jobs,
+    reconcile_r2_storage,
+    storage_key_fingerprint,
+)
 from .services.structured_analysis_service import (
     StructuredAnalysisError,
     run_clause_analysis,
     run_risk_analysis,
 )
+from .services.upload_limits_middleware import UploadBodyLimitMiddleware
 
 load_dotenv()
 
 OCR_SETTINGS = ExtractionSettings.from_env()
 
 MAX_FILE_SIZE = 25 * 1024 * 1024
+DOCUMENT_PROCESSING_REQUEST_LIMIT = max(1, min(100, int(os.getenv("DOCUMENT_PROCESSING_REQUEST_LIMIT", "5"))))
+DOCUMENT_PROCESSING_WINDOW_SECONDS = max(60, min(86400, int(os.getenv("DOCUMENT_PROCESSING_WINDOW_SECONDS", "600"))))
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 150
+R2_MAINTENANCE_ENABLED = os.getenv("R2_MAINTENANCE_ENABLED", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+R2_MAINTENANCE_STARTUP_DELAY_SECONDS = max(
+    0,
+    int(os.getenv("R2_MAINTENANCE_STARTUP_DELAY_SECONDS", "30")),
+)
+R2_RECONCILE_INTERVAL_SECONDS = max(
+    300,
+    int(os.getenv("R2_RECONCILE_INTERVAL_SECONDS", "86400")),
+)
+R2_DELETION_RETRY_BATCH_SIZE = max(
+    1,
+    min(100, int(os.getenv("R2_DELETION_RETRY_BATCH_SIZE", "20"))),
+)
+R2_DELETION_RETRY_INTERVAL_SECONDS = max(
+    30, int(os.getenv("R2_DELETION_RETRY_INTERVAL_SECONDS", "60")),
+)
 OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
 OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-5-mini")
 OPENAI_ANALYSIS_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-5-mini")
@@ -143,6 +180,8 @@ EXTENSION_CONTENT_TYPES = {extension: mime_type for mime_type, extension in SUPP
 
 app = FastAPI(title="Juris Document API", version="1.0.0")
 
+app.add_middleware(UploadBodyLimitMiddleware, max_bytes=MAX_FILE_SIZE + 1024 * 1024)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -152,6 +191,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Retry-After", "x-request-id"],
 )
 
 
@@ -194,6 +234,7 @@ def error_envelope_response(
     status_code_value: int = 500,
     error_type: str = "ServerError",
     details=None,
+    headers=None,
 ):
     content = {
         "success": False,
@@ -210,7 +251,10 @@ def error_envelope_response(
         f"[api:error] request_id={request_id_value} status={status_code_value} "
         f"type={error_type} message={message} details={details}"
     )
-    return JSONResponse(status_code=status_code_value, content=content)
+    return JSONResponse(
+        status_code=status_code_value, content=content,
+        headers={**PRIVATE_RESPONSE_HEADERS, **(headers or {})},
+    )
 
 
 def log_exception(stage: str, exc: Exception, request_id_value: str, **context):
@@ -259,6 +303,8 @@ async def log_http_requests(request: Request, call_next):
         f"path={request.url.path} status={response.status_code} duration_ms={duration_ms}"
     )
     response.headers["x-request-id"] = req_id
+    if request.url.path.startswith("/api/"):
+        response.headers.update(PRIVATE_RESPONSE_HEADERS)
     return response
 
 
@@ -270,6 +316,7 @@ async def structured_http_exception_handler(request: Request, exc: HTTPException
         request_id_value=req_id,
         status_code_value=exc.status_code,
         error_type="HTTPException",
+        headers=exc.headers,
     )
 
 
@@ -360,8 +407,70 @@ def get_r2_client():
         aws_access_key_id=get_env("R2_ACCESS_KEY_ID"),
         aws_secret_access_key=get_env("R2_SECRET_ACCESS_KEY"),
         region_name="auto",
-        config=Config(signature_version="s3v4"),
+        config=Config(
+            signature_version="s3v4",
+            connect_timeout=10,
+            read_timeout=30,
+            retries={"mode": "standard", "total_max_attempts": 3},
+        ),
     )
+
+
+async def delete_r2_object(file_key: str):
+    client = get_r2_client()
+    await asyncio.to_thread(
+        client.delete_object,
+        Bucket=get_env("R2_BUCKET_NAME"),
+        Key=file_key,
+    )
+
+
+def _list_r2_objects_sync():
+    client = get_r2_client()
+    items = []
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=get_env("R2_BUCKET_NAME")):
+        items.extend(page.get("Contents") or [])
+    return object_records(items)
+
+
+async def list_r2_objects():
+    return await asyncio.to_thread(_list_r2_objects_sync)
+
+
+async def run_r2_maintenance_cycle(pool: asyncpg.Pool, *, reconcile: bool = True):
+    deletion_result = await process_due_deletion_jobs(
+        pool,
+        delete_object=delete_r2_object,
+        limit=R2_DELETION_RETRY_BATCH_SIZE,
+    )
+    report = await reconcile_r2_storage(pool, list_objects=list_r2_objects) if reconcile else None
+    print(
+        "[r2:maintenance] "
+        f"claimed={deletion_result.claimed} completed={deletion_result.completed} "
+        f"failed={deletion_result.failed} "
+        f"report={json.dumps(report.as_dict() if report else None, sort_keys=True)}"
+    )
+    return deletion_result, report
+
+
+async def r2_maintenance_loop(pool: asyncpg.Pool):
+    await asyncio.sleep(R2_MAINTENANCE_STARTUP_DELAY_SECONDS)
+    next_reconciliation = 0
+    while True:
+        try:
+            reconcile = time.monotonic() >= next_reconciliation
+            await run_r2_maintenance_cycle(pool, reconcile=reconcile)
+            if reconcile:
+                next_reconciliation = time.monotonic() + R2_RECONCILE_INTERVAL_SECONDS
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(
+                "[r2:maintenance:error] "
+                f"type={exc.__class__.__name__}"
+            )
+        await asyncio.sleep(R2_DELETION_RETRY_INTERVAL_SECONDS)
 
 
 async def get_db_pool():
@@ -397,10 +506,31 @@ async def startup():
         if database_url
         else None
     )
+    app.state.r2_maintenance_task = None
+    if app.state.db_pool and R2_MAINTENANCE_ENABLED:
+        app.state.r2_maintenance_task = asyncio.create_task(
+            r2_maintenance_loop(app.state.db_pool),
+            name="r2-maintenance",
+        )
+    print(
+        "[r2:maintenance:config] "
+        f"enabled={R2_MAINTENANCE_ENABLED} "
+        f"startup_delay_seconds={R2_MAINTENANCE_STARTUP_DELAY_SECONDS} "
+        f"interval_seconds={R2_RECONCILE_INTERVAL_SECONDS} "
+        f"retry_interval_seconds={R2_DELETION_RETRY_INTERVAL_SECONDS} "
+        f"retry_batch_size={R2_DELETION_RETRY_BATCH_SIZE}"
+    )
 
 
 @app.on_event("shutdown")
 async def shutdown():
+    maintenance_task = getattr(app.state, "r2_maintenance_task", None)
+    if maintenance_task:
+        maintenance_task.cancel()
+        try:
+            await maintenance_task
+        except asyncio.CancelledError:
+            pass
     pool = getattr(app.state, "db_pool", None)
     if pool:
         await pool.close()
@@ -491,6 +621,40 @@ async def current_user_id(token: Annotated[str, Depends(bearer_token)]) -> str:
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Supabase user response missing user id.")
     return user_id
+
+
+async def enforce_processing_budget(pool, user_id: str):
+    try:
+        budget = await consume_processing_budget(
+            pool, user_id=user_id,
+            limit=DOCUMENT_PROCESSING_REQUEST_LIMIT,
+            window_seconds=DOCUMENT_PROCESSING_WINDOW_SECONDS,
+        )
+    except Exception as exc:
+        print(f"[document:processing:quota_unavailable] type={exc.__class__.__name__}")
+        raise HTTPException(
+            status_code=503,
+            detail="Document processing is temporarily unavailable. Please try again later.",
+            headers={"Retry-After": "60"},
+        ) from exc
+    if not budget.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many upload or reprocess requests. Please wait before trying again.",
+            headers={"Retry-After": str(budget.retry_after)},
+        )
+
+
+async def require_upload_budget(
+    user_id: Annotated[str, Depends(current_user_id)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
+    await enforce_processing_budget(pool, user_id)
+
+
+def document_disposition(file_name: str, mime_type: str) -> str:
+    disposition = "inline" if mime_type == "application/pdf" else "attachment"
+    return f'{disposition}; filename="{safe_file_name(file_name)}"'
 
 
 def user_file_key(user_id: str, document_id: str, file_name: str) -> str:
@@ -2015,6 +2179,7 @@ async def save_document_metadata(
     file_key: str,
     file_size: int,
     mime_type: str,
+    status_value: str = "uploaded",
 ):
     return await pool.fetchrow(
         """
@@ -2024,7 +2189,7 @@ async def save_document_metadata(
           extraction_metadata, created_at, updated_at
         )
         values (
-          $1, $2, $3, $4, $5, $6, $7, 'cloudflare_r2', 'uploaded', null,
+          $1, $2, $3, $4, $5, $6, $7, 'cloudflare_r2', $8, null,
           '{}'::integer[], '{}'::jsonb, now(), now()
         )
         on conflict (id) do update set
@@ -2032,7 +2197,7 @@ async def save_document_metadata(
           file_key = excluded.file_key,
           file_size = excluded.file_size,
           mime_type = excluded.mime_type,
-          status = 'uploaded',
+          status = excluded.status,
           processing_error = null,
           low_confidence_pages = '{}'::integer[],
           extraction_metadata = '{}'::jsonb,
@@ -2048,7 +2213,74 @@ async def save_document_metadata(
         file_key,
         file_size,
         mime_type,
+        status_value,
     )
+
+
+async def compensate_uncommitted_upload(
+    pool: asyncpg.Pool,
+    *,
+    document_id: str,
+    user_id: str,
+    file_key: str,
+    storage_attempted: bool,
+):
+    if storage_attempted:
+        try:
+            job = await enqueue_deletion_job(
+                pool,
+                document_id=document_id,
+                user_id=user_id,
+                file_key=file_key,
+                reason="upload_rollback",
+            )
+            if not job:
+                raise RuntimeError("Upload rollback job ownership mismatch.")
+            if await process_deletion_job_by_id(pool, str(job["id"]), delete_object=delete_r2_object):
+                return True
+        except Exception as exc:
+            print(
+                "[r2:upload:rollback_pending] "
+                f"document_id={document_id} "
+                f"key_fingerprint={storage_key_fingerprint(file_key)} "
+                f"error_type={exc.__class__.__name__}"
+            )
+        try:
+            await pool.execute(
+                """
+                update documents
+                set status = 'failed',
+                  processing_error = 'Upload cleanup is pending. Retry deletion later.',
+                  updated_at = now()
+                where id = $1 and user_id = $2 and file_key = $3
+                """,
+                uuid.UUID(document_id),
+                uuid.UUID(user_id),
+                file_key,
+            )
+        except Exception as exc:
+            print(f"[r2:upload:rollback_status_failed] document_id={document_id} type={exc.__class__.__name__}")
+        return False
+
+    try:
+        await pool.execute(
+            "delete from documents where id = $1 and user_id = $2 and file_key = $3",
+            uuid.UUID(document_id),
+            uuid.UUID(user_id),
+            file_key,
+        )
+    except Exception as metadata_exc:
+        print(
+            "[r2:upload:rollback_metadata_failed] "
+            f"document_id={document_id} key_fingerprint={storage_key_fingerprint(file_key)} "
+            f"error_type={metadata_exc.__class__.__name__}"
+        )
+        return False
+    print(
+        "[r2:upload:rollback_complete] "
+        f"document_id={document_id} key_fingerprint={storage_key_fingerprint(file_key)}"
+    )
+    return True
 
 
 async def save_document_text(
@@ -2190,6 +2422,7 @@ async def claim_document_processing(pool: asyncpg.Pool, document_id: str, user_i
           updated_at = now()
         where id = $1
           and user_id = $2
+          and status <> 'uploading'
           and (
             not (status = any($3::text[]))
             or updated_at < now() - make_interval(secs => $4::double precision)
@@ -2885,35 +3118,22 @@ async def juris_compass_chat(
     return success_envelope(research, req_id)
 
 
-@app.post("/api/documents/upload", response_model=DocumentRecord)
+@app.post("/api/documents/upload", response_model=DocumentRecord, dependencies=[Depends(require_upload_budget)])
 async def upload_document(
     file: Annotated[UploadFile, File()],
     user_id: Annotated[str, Depends(current_user_id)],
     pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
 ):
+    file_name = file.filename or "document"
+    contents = await file.read(MAX_FILE_SIZE + 1)
+    file_size = len(contents)
+    mime_type = validate_uploaded_file(file_name, file.content_type, file_size, contents)
+    document_id = str(uuid.uuid4())
+    file_key = user_file_key(user_id, document_id, file_name)
+    storage_attempted = False
+    upload_committed = False
+
     try:
-        print("auth verified")
-        file_name = file.filename or "document"
-        contents = await file.read(MAX_FILE_SIZE + 1)
-        file_size = len(contents)
-        mime_type = validate_uploaded_file(file_name, file.content_type, file_size, contents)
-        print("file validated")
-
-        document_id = str(uuid.uuid4())
-        file_key = user_file_key(user_id, document_id, file_name)
-
-        print("r2 upload starting")
-        r2_client = get_r2_client()
-        await asyncio.to_thread(
-            r2_client.put_object,
-            Bucket=get_env("R2_BUCKET_NAME"),
-            Key=file_key,
-            Body=contents,
-            ContentType=mime_type,
-        )
-        print("r2 upload done")
-
-        print("database insert starting")
         row = await save_document_metadata(
             pool=pool,
             document_id=document_id,
@@ -2922,8 +3142,25 @@ async def upload_document(
             file_key=file_key,
             file_size=file_size,
             mime_type=mime_type,
+            status_value="uploading",
         )
-        print("database insert done")
+
+        r2_client = get_r2_client()
+        storage_attempted = True
+        await asyncio.to_thread(
+            r2_client.put_object,
+            Bucket=get_env("R2_BUCKET_NAME"),
+            Key=file_key,
+            Body=contents,
+            ContentType=mime_type,
+            CacheControl=PRIVATE_CACHE_CONTROL,
+            ContentDisposition=document_disposition(file_name, mime_type),
+        )
+        row = await update_document_status(pool, document_id, user_id, "uploaded")
+        if not row:
+            raise RuntimeError("Uploaded document metadata could not be committed.")
+        upload_committed = True
+
         if mime_type == "application/pdf":
             row = await process_pdf_document(
                 pool=pool,
@@ -2933,16 +3170,35 @@ async def upload_document(
             )
 
         return document_record(row)
+    except HTTPException:
+        if not upload_committed:
+            await compensate_uncommitted_upload(
+                pool,
+                document_id=document_id,
+                user_id=user_id,
+                file_key=file_key,
+                storage_attempted=storage_attempted,
+            )
+        raise
     except Exception as exc:
-        traceback.print_exc()
-        return JSONResponse(
-            status_code=500,
-            content={
-                "detail": "Upload failed",
-                "error": str(exc),
-                "type": exc.__class__.__name__,
-            },
+        if not upload_committed:
+            await compensate_uncommitted_upload(
+                pool,
+                document_id=document_id,
+                user_id=user_id,
+                file_key=file_key,
+                storage_attempted=storage_attempted,
+            )
+        print(
+            "[document:upload:failed] "
+            f"document_id={document_id} user_id={user_id} "
+            f"key_fingerprint={storage_key_fingerprint(file_key)} "
+            f"error_type={exc.__class__.__name__}"
         )
+        raise HTTPException(
+            status_code=500,
+            detail="Upload failed. Please try again.",
+        ) from exc
 
 
 @app.get("/api/documents", response_model=list[DocumentRecord])
@@ -2971,7 +3227,7 @@ async def download_url(
     pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
 ):
     row = await pool.fetchrow(
-        "select file_key from documents where id = $1 and user_id = $2",
+        "select file_key, file_name, mime_type from documents where id = $1 and user_id = $2",
         uuid.UUID(document_id),
         uuid.UUID(user_id),
     )
@@ -2981,7 +3237,13 @@ async def download_url(
     try:
         signed_url = get_r2_client().generate_presigned_url(
             ClientMethod="get_object",
-            Params={"Bucket": get_env("R2_BUCKET_NAME"), "Key": row["file_key"]},
+            Params={
+                "Bucket": get_env("R2_BUCKET_NAME"),
+                "Key": row["file_key"],
+                "ResponseCacheControl": PRIVATE_CACHE_CONTROL,
+                "ResponseContentDisposition": document_disposition(row["file_name"], row["mime_type"]),
+                "ResponseContentType": row["mime_type"] if row["mime_type"] in SUPPORTED_TYPES else "application/octet-stream",
+            },
             ExpiresIn=300,
             HttpMethod="GET",
         )
@@ -3003,6 +3265,7 @@ async def reprocess_document(
     if document["mime_type"] != "application/pdf":
         raise HTTPException(status_code=400, detail="Text recognition retry is currently available for PDF files.")
 
+    await enforce_processing_budget(pool, user_id)
     claimed = await claim_document_processing(pool, document_id, user_id)
     if not claimed:
         raise HTTPException(status_code=409, detail="This document is already being processed.")
@@ -3635,83 +3898,64 @@ async def delete_document(
     user_id: Annotated[str, Depends(current_user_id)],
     pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
 ):
+    try:
+        document_uuid = uuid.UUID(document_id)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="A valid document ID is required.") from exc
+
     row = await pool.fetchrow(
-        "select file_key from documents where id = $1 and user_id = $2",
-        uuid.UUID(document_id),
+        "select id, user_id, file_key, status from documents where id = $1 and user_id = $2",
+        document_uuid,
         uuid.UUID(user_id),
     )
     if not row:
         raise HTTPException(status_code=404, detail="Document not found.")
 
-    try:
-        get_r2_client().delete_object(Bucket=get_env("R2_BUCKET_NAME"), Key=row["file_key"])
-    except ClientError as exc:
-        raise HTTPException(status_code=500, detail="Could not delete file from storage.") from exc
+    if row["status"] == "uploading":
+        raise HTTPException(status_code=409, detail="The upload is still in progress. Try again shortly.")
 
-    await pool.execute(
-        "delete from documents where id = $1 and user_id = $2",
-        uuid.UUID(document_id),
-        uuid.UUID(user_id),
+    try:
+        job = await enqueue_deletion_job(
+            pool,
+            document_id=document_id,
+            user_id=user_id,
+            file_key=str(row["file_key"]),
+            reason="user_delete",
+        )
+        if not job:
+            raise RuntimeError("Deletion job ownership mismatch.")
+    except Exception as exc:
+        print(
+            "[document:delete:enqueue_failed] "
+            f"document_id={document_id} user_id={user_id} "
+            f"key_fingerprint={storage_key_fingerprint(str(row['file_key']))} "
+            f"error_type={exc.__class__.__name__}"
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Deletion could not be scheduled. Please try again.",
+        ) from exc
+
+    try:
+        deleted = await process_deletion_job_by_id(
+            pool,
+            str(job["id"]),
+            delete_object=delete_r2_object,
+        )
+    except Exception as exc:
+        print(f"[document:delete:retry_pending] job_id={job['id']} type={exc.__class__.__name__}")
+        deleted = False
+    if deleted:
+        return {"ok": True}
+
+    # The existing client removes the row on any 2xx response. Keep it visible
+    # until both storage deletion and database finalization are confirmed.
+    raise HTTPException(
+        status_code=503,
+        detail="Deletion is not complete yet. It is queued for automatic retry.",
     )
-    return {"ok": True}
 
 
 @app.get("/health")
 async def health():
     return {"ok": True}
-
-
-@app.get("/debug/openai")
-async def debug_openai():
-    result = {
-        "openai_key_detected": bool(os.getenv("OPENAI_API_KEY")),
-        "embed_model": OPENAI_EMBED_MODEL,
-        "chat_model": OPENAI_CHAT_MODEL,
-        "httpx_status": None,
-        "httpx_error_type": None,
-        "httpx_error_message": None,
-        "openai_sdk_models_ok": False,
-        "openai_sdk_models_error_type": None,
-        "openai_sdk_models_error_message": None,
-        "tiny_embedding_ok": False,
-        "tiny_embedding_error_type": None,
-        "tiny_embedding_error_message": None,
-        "tiny_embedding_dimensions": None,
-    }
-
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                "https://api.openai.com/v1/models",
-                headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"},
-            )
-        result["httpx_status"] = response.status_code
-        if response.status_code >= 400:
-            result["httpx_error_type"] = "HTTPStatusError"
-            result["httpx_error_message"] = sanitize_log_text(response.text, limit=2000)
-    except Exception as exc:
-        result["httpx_error_type"] = exc.__class__.__name__
-        result["httpx_error_message"] = str(exc)
-
-    try:
-        await asyncio.to_thread(lambda: get_openai_client().models.list())
-        result["openai_sdk_models_ok"] = True
-    except Exception as exc:
-        result["openai_sdk_models_error_type"] = exc.__class__.__name__
-        result["openai_sdk_models_error_message"] = openai_error_detail(exc)
-
-    try:
-        response = await asyncio.to_thread(
-            lambda: get_openai_client().embeddings.create(
-                model=OPENAI_EMBED_MODEL,
-                input="hello",
-            )
-        )
-        embedding = response.data[0].embedding if response.data else []
-        result["tiny_embedding_ok"] = True
-        result["tiny_embedding_dimensions"] = len(embedding)
-    except Exception as exc:
-        result["tiny_embedding_error_type"] = exc.__class__.__name__
-        result["tiny_embedding_error_message"] = openai_error_detail(exc)
-
-    return result

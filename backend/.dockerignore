@@ -1,4 +1,10 @@
 .venv
+.env
+.env.*
+tmp
+ocr-debug
+*.pdf
+*.log
 __pycache__
 *.py[cod]
 .pytest_cache

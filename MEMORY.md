@@ -1,6 +1,6 @@
 # Juris Project Memory
 
-Last verified against the repository: 2026-08-29.
+Last verified against the repository: 2026-09-04.
 
 ## Product
 
@@ -42,7 +42,13 @@ There are no active Gemini or Ollama runtime paths. `backend/db/migrations/005_o
 - `backend/app/services/ocr_service.py`: OCR strategies, scoring, retries, and debug artifacts.
 - `backend/app/services/document_processing_service.py`: extraction-to-chunk processing pipeline.
 - `backend/app/services/structured_analysis_service.py`: structured analysis generation/retries.
-- `backend/db/migrations/`: ordered Supabase migrations `001` through `009`.
+- `backend/app/services/r2_lifecycle_service.py`: durable R2 deletion jobs, bounded retries, and report-only storage reconciliation.
+- `backend/app/services/document_security_service.py`: database-backed upload/reprocess quotas and private-response headers.
+- `backend/app/services/upload_limits_middleware.py`: multipart request-body ceiling, including chunked uploads.
+- `backend/scripts/reconcile_r2_storage.py`: manual read-only drift report and recorded-job retry command.
+- `backend/scripts/security_check.py`: read-only operational audit with redacted findings and nonzero failure/incomplete exits; no deletion or migration.
+- `.github/workflows/security-regression.yml`: credential-free regression workflow, active only once committed/pushed.
+- `backend/db/migrations/`: ordered Supabase migrations `001` through `011`.
 - `backend/tests/`: OCR, processing, and structured-analysis tests.
 
 ## Routes
@@ -79,12 +85,15 @@ Primary authenticated backend routes:
 
 - Every document route authenticates the Bearer token and verifies ownership.
 - Uploads must never be accepted without a valid authenticated session.
+- Upload/reprocess share a Postgres-backed per-user budget (default five attempts per ten-minute window). Rate denials return 429 + Retry-After; quota storage failure returns 503. Do not replace this with a process-local counter.
+- Private API and signed file responses are no-store. Signed PDF URLs retain inline preview and five-minute expiry. Upload request bodies are capped at 26 MiB including multipart overhead; the file limit remains 25 MiB.
 - R2 credentials and `OPENAI_API_KEY` stay backend-only. Never expose or log secrets.
 - Chat remains live per question and is not globally cached.
 - Generated outputs are cached in `ai_outputs` for summary, document intelligence, clauses, risks, and comparison.
 - Cache hashes must change when document content/version changes; compare hashes include both documents.
 - Reprocessing replaces stale extracted text, chunks, embeddings, and cached AI outputs.
-- Document deletion cascades to owned text/chunks/cached outputs through the database relationships.
+- Document deletion is ledger-backed: record intent first, confirm R2 deletion, then delete the database row so child text/chunks/cached outputs cascade.
+- Unknown R2 objects are never deleted automatically. Reconciliation reports counts, dates, bytes, and truncated SHA-256 key fingerprints until ownership is adjudicated.
 - Compare uses bounded context and concise output; do not restore full-document prompts for long documents.
 - Preserve structured JSON response schemas and frontend API contracts unless a task explicitly changes them.
 - Do not weaken document grounding or let a model invent unsupported legal details.
@@ -125,6 +134,8 @@ Backend configuration includes:
 - `SUPABASE_ANON_KEY` or `SUPABASE_SERVICE_ROLE_KEY`
 - `DATABASE_URL`
 - R2 credentials/bucket configuration
+- `R2_MAINTENANCE_ENABLED`, startup delay, reconciliation interval, and deletion retry batch size
+- `DOCUMENT_PROCESSING_REQUEST_LIMIT`, `DOCUMENT_PROCESSING_WINDOW_SECONDS`
 - `OPENAI_API_KEY`
 - `OPENAI_EMBED_MODEL`
 - `OPENAI_CHAT_MODEL`
@@ -166,11 +177,17 @@ Install local Tesseract on macOS with `brew install tesseract` before exercising
 
 ## Database and Deployment
 
-- Apply migrations in numeric order through `009_hybrid_ocr_processing.sql`.
+- Apply migrations in numeric order through `011_document_processing_limits.sql`.
+- P1 is also local, not deployed. Apply both pending migrations 010 and 011 before deploying. See `docs/P1_DOCUMENT_SECURITY.md` for staged verification and provider-level controls still outstanding.
+- P2 adds a read-only schema/permissions, storage/backlog, and optional HTTP checker plus Docker packaging and CI checks; no new migration. See `docs/P2_SECURITY_OPERATIONS.md`. No external monitor, provider hardening, or verified backup/restore has been configured by these phases.
+- The 2026-09-04 P2 audit found 0 direct browser read/write grants but residual other privileges on 11 relations and 8 default ACL entries; pending 010 must still be rolled out. The 5 historical R2 orphans remain unchanged. Provider public domains/token scopes and deployed API state are not verified by local HTTP tests.
+- P0 lifecycle code is local and not yet deployed; the read-only production check on 2026-09-04 found no deletion ledger. Apply `010` before this release, not `009` again. See `docs/P0_STORAGE_ROLLOUT.md`.
+- Deletion retries poll every 60 seconds while the backend is running; storage inventory runs daily. Sleeping/stopped services need an external scheduler or always-on worker. Pending deletion returns 503, never a false success.
+- A crash during upload leaves an `uploading` row for investigation. Reconciliation reports these without automatically deleting possibly valid files.
 - Do not reapply a migration blindly; first verify whether it is idempotent and whether the target project already contains it.
 - Python is pinned to `python-3.12.7` in both runtime files and the Docker image.
 - Render health check: `GET /health`.
-- `GET /debug/openai` is a temporary unauthenticated connectivity diagnostic still present in `backend/app/main.py`; remove it before final production release.
+- The temporary public `GET /debug/openai` endpoint is removed from local code. Confirm 404 after production redeployment; do not recreate an unauthenticated provider diagnostic.
 
 ## Current Repository Notes
 

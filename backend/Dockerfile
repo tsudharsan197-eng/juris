@@ -21,6 +21,7 @@ RUN pip install --upgrade pip \
 RUN useradd --create-home --uid 10001 juris
 
 COPY --chown=juris:juris app ./app
+COPY --chown=juris:juris scripts ./scripts
 
 USER juris
 

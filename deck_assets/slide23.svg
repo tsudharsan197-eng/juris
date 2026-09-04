@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <rect width="1920" height="1080" fill="#07090D"/>
+  <rect x="48" y="54" width="4" height="50" fill="#FF7A3D"/>
+  <g font-family="Geist, Inter, sans-serif" fill="#A7B0C0"><text x="66" y="75" font-size="18" font-weight="600" fill="#FF7A3D">23 / 29</text><text x="230" y="75" font-size="18">DIFFERENTIATION / WHY JURIS</text><text x="1450" y="75" font-size="16">JURIS / INVESTOR NARRATIVE</text></g>
+  <text x="88" y="236" font-family="Archivo, Arial Black, sans-serif" font-size="96" font-weight="900" fill="#A7B0C0">HOURS</text>
+  <text x="88" y="344" font-family="Archivo, Arial Black, sans-serif" font-size="96" font-weight="900" fill="#FF7A3D">BECOME MINUTES.</text>
+  <text x="94" y="416" font-family="Geist, sans-serif" font-size="25" fill="#A7B0C0">The advantage is not one model. It is the complete document-to-intelligence system.</text>
+  <line x1="960" y1="142" x2="960" y2="956" stroke="#33405A" stroke-width="2"/>
+  <text x="90" y="516" font-family="Geist, sans-serif" font-size="16" font-weight="700" letter-spacing="2" fill="#FF6648">TRADITIONAL REVIEW</text>
+  <text x="1040" y="516" font-family="Geist, sans-serif" font-size="16" font-weight="700" letter-spacing="2" fill="#4F8BFF">JURIS</text>
+  <g font-family="Geist, sans-serif" font-size="22" fill="#FFFFFF">
+    <text x="152" y="582">Manual reading</text><text x="152" y="646">High specialist cost</text><text x="152" y="710">Scanned pages break parsers</text><text x="152" y="774">Insights live in notes</text><text x="152" y="838">Version changes are tedious</text><text x="152" y="902">General questions leave workflow</text>
+    <text x="1102" y="582">AI-assisted review</text><text x="1102" y="646" fill="#C8FF3D">Repeatable software workflow</text><text x="1102" y="710">Hybrid OCR fallback</text><text x="1102" y="774">Structured, source-linked outputs</text><text x="1102" y="838">Meaningful legal diff</text><text x="1102" y="902">Compass extends the intelligence layer</text>
+  </g>
+  <g font-family="Geist, sans-serif" font-size="14" font-weight="700"><text x="90" y="582" fill="#FF6648">01</text><text x="90" y="646" fill="#FF6648">02</text><text x="90" y="710" fill="#FF6648">03</text><text x="90" y="774" fill="#FF6648">04</text><text x="90" y="838" fill="#FF6648">05</text><text x="90" y="902" fill="#FF6648">06</text><text x="1040" y="582" fill="#4F8BFF">01</text><text x="1040" y="646" fill="#4F8BFF">02</text><text x="1040" y="710" fill="#4F8BFF">03</text><text x="1040" y="774" fill="#4F8BFF">04</text><text x="1040" y="838" fill="#4F8BFF">05</text><text x="1040" y="902" fill="#4F8BFF">06</text></g>
+  <g stroke="#33405A"><line x1="90" y1="606" x2="810" y2="606"/><line x1="90" y1="670" x2="810" y2="670"/><line x1="90" y1="734" x2="810" y2="734"/><line x1="90" y1="798" x2="810" y2="798"/><line x1="90" y1="862" x2="810" y2="862"/><line x1="1040" y1="606" x2="1800" y2="606"/><line x1="1040" y1="670" x2="1800" y2="670"/><line x1="1040" y1="734" x2="1800" y2="734"/><line x1="1040" y1="798" x2="1800" y2="798"/><line x1="1040" y1="862" x2="1800" y2="862"/></g>
+  <rect x="824" y="800" width="272" height="88" fill="#EEE8DC" stroke="#33405A"/><text x="960" y="858" font-family="Geist, sans-serif" font-size="42" font-weight="700" text-anchor="middle" fill="#0B0F17">→</text>
+</svg>
