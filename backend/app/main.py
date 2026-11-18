@@ -107,6 +107,25 @@ COMPARE_CONTEXT_CHAR_BUDGET = int(os.getenv("COMPARE_CONTEXT_CHAR_BUDGET", "8000
 COMPARE_MAX_CHUNKS_PER_DOCUMENT = int(os.getenv("COMPARE_MAX_CHUNKS_PER_DOCUMENT", "8"))
 COMPASS_MAX_MESSAGE_CHARS = 4000
 COMPASS_HISTORY_LIMIT = 10
+
+# Browser origins allowed to call this API. Set CORS_ALLOWED_ORIGINS to a
+# comma-separated list of your own deployed frontend URLs, e.g.
+#   CORS_ALLOWED_ORIGINS=https://your-app.vercel.app,https://www.yourdomain.com
+# Local Vite dev is always permitted so `npm run dev` works out of the box.
+_DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+CORS_ALLOWED_ORIGINS = tuple(
+    dict.fromkeys(
+        [
+            origin
+            for origin in (
+                value.strip()
+                for value in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+            )
+            if origin
+        ]
+        + list(_DEFAULT_CORS_ORIGINS)
+    )
+)
 COMPASS_MAX_OUTPUT_TOKENS = int(os.getenv("OPENAI_COMPASS_MAX_OUTPUT_TOKENS", "2500"))
 COMPASS_DISCLAIMER = (
     "Juris Compass provides legal information and education. It is not legal advice. "
@@ -184,10 +203,7 @@ app.add_middleware(UploadBodyLimitMiddleware, max_bytes=MAX_FILE_SIZE + 1024 * 1
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "https://juris-pi.vercel.app",
-    ],
+    allow_origins=list(CORS_ALLOWED_ORIGINS),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

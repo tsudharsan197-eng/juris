@@ -54,7 +54,7 @@ Restore from a bundle:
 ```bash
 git clone /path/to/juris-YYYYMMDD-HHMMSS.bundle Juris-restored
 cd Juris-restored
-git remote set-url origin https://github.com/Tharun2109SM/juris.git
+git remote set-url origin https://github.com/tsudharsan197-eng/juris.git
 ```
 
 ## Full Disaster Recovery
